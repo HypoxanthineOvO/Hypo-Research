@@ -1,23 +1,105 @@
 # Hypo-Research
 
-Hypo-Research is an academic research assistant skill pack. This MVP focuses on
-targeted literature search against the Semantic Scholar Graph API and stores
-structured search output under `data/surveys/`.
+学术文献调研工具，支持多源并行检索、跨源去重、交叉验证和自动化输出。
 
-## Install
+## 功能特性
+
+- 多源检索：Semantic Scholar、OpenAlex、arXiv 并行检索
+- 跨源去重：DOI / 标题+作者+年份 / Jaccard fuzzy 三层去重
+- 交叉验证：自动标记被多个源确认的论文
+- 多格式输出：JSON（结构化）、BibTeX（LaTeX 可用）、Markdown（人类可读报告）
+- 元数据质量检查：自动检测缺 DOI、缺作者等问题
+- Hook 系统：可扩展的流水线后处理机制
+- Skill 集成：可作为 Claude Code / Codex 的 Skill 使用
+
+## 安装
+
+### 从源码安装（推荐）
 
 ```bash
-python -m pip install -e ".[dev]"
+git clone git@gitlab.vsplab.cn:heyx/hypo-research.git
+cd Hypo-Research
+pip install -e .
 ```
 
-## CLI
+### 验证安装
 
 ```bash
-hypo-research search "cryogenic computing GPU" --year-start 2020 --year-end 2026 --max-results 50
+hypo-research --help
 ```
 
-Outputs are written to `data/surveys/{date}_{slug}/` by default:
+### 依赖
 
-- `meta.json`
-- `results.json`
-- `raw/semantic_scholar.json`
+- Python >= 3.11
+- httpx, click, pydantic, rich, feedparser
+
+## 快速开始
+
+### 基本检索
+
+```bash
+hypo-research search "你的检索词" --output-dir data/surveys/my_survey
+```
+
+### 多 query 检索（推荐，覆盖更广）
+
+```bash
+hypo-research search "main query" \
+  -eq "expanded query 1" \
+  -eq "expanded query 2" \
+  --output-dir data/surveys/my_survey
+```
+
+### 指定数据源
+
+```bash
+hypo-research search "query" --source s2 --source arxiv
+```
+
+可选源：`s2`（Semantic Scholar）、`openalex`、`arxiv`、`all`（默认）
+
+### 控制年份范围
+
+```bash
+hypo-research search "query" --year-start 2020 --year-end 2026
+```
+
+## 输出文件
+
+每次检索在 `--output-dir` 下生成：
+
+| 文件 | 说明 |
+|------|------|
+| `results.json` | 结构化检索结果 |
+| `meta.json` | 检索元数据和统计 |
+| `references.bib` | BibTeX（可导入 LaTeX） |
+| `results.md` | 人类可读调研报告 |
+
+## 配合 LaTeX 使用
+
+1. 将 `references.bib` 复制到 LaTeX 项目
+2. 在 `.tex` 中 `\bibliography{references}`
+3. 用 `\cite{smith2023xxx}` 引用
+
+## 作为 Skill 使用
+
+Hypo-Research 可以作为 Claude Code / Codex 的 Skill 自动调用：
+
+- Claude Code：使用 `/survey`、`/quick-search`、`/review-results` 命令
+- Codex：直接自然语言描述调研需求，Codex 读取 `AGENTS.md` 自动调度
+
+详见 [docs/skill-usage-guide.md](/home/heyx/Hypo-Research/docs/skill-usage-guide.md)。
+
+## 开发
+
+### 运行测试
+
+```bash
+pytest -v
+pytest -m e2e -v
+pytest -m "not e2e" -v
+```
+
+## License
+
+MIT
