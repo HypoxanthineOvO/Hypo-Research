@@ -10,8 +10,15 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from hypo_research.core.models import ExpansionTrace, SearchParams, SearchResult
-from hypo_research.core.sources import SemanticScholarSource, SourceError
+from hypo_research.core.models import ExpansionTrace, QueryVariant, SearchParams, SearchResult
+from hypo_research.core.sources import (
+    ArxivSource,
+    BaseSource,
+    OpenAlexSource,
+    SemanticScholarSource,
+    SourceError,
+)
+from hypo_research.hooks import AutoBibHook, AutoReportHook, AutoVerifyHook, HookContext, HookEvent, HookManager
 from hypo_research.output.json_output import write_search_output
 from hypo_research.survey.targeted import TargetedSearch
 
@@ -81,12 +88,62 @@ def _apply_relevance_threshold(
     return before_count, len(filtered)
 
 
+def _resolve_source_names(selected_sources: tuple[str, ...]) -> list[str]:
+    if not selected_sources or "all" in selected_sources:
+        return ["semantic_scholar", "openalex", "arxiv"]
+
+    mapping = {
+        "s2": "semantic_scholar",
+        "openalex": "openalex",
+        "arxiv": "arxiv",
+    }
+    resolved = [mapping[source.lower()] for source in selected_sources]
+    return list(dict.fromkeys(resolved))
+
+
+def _build_sources(
+    selected_sources: tuple[str, ...],
+    s2_api_key: str | None,
+    openalex_email: str | None,
+) -> list[BaseSource]:
+    names = _resolve_source_names(selected_sources)
+    sources: list[BaseSource] = []
+    for name in names:
+        if name == "semantic_scholar":
+            sources.append(SemanticScholarSource(api_key=s2_api_key))
+        elif name == "openalex":
+            sources.append(OpenAlexSource(email=openalex_email))
+        elif name == "arxiv":
+            sources.append(ArxivSource())
+    return sources
+
+
+def _build_hook_manager(
+    no_hooks: bool,
+    no_bib: bool,
+    no_report: bool,
+    no_auto_verify: bool,
+) -> HookManager:
+    """Build a hook manager based on CLI flags."""
+    manager = HookManager()
+    if no_hooks:
+        return manager
+    if not no_auto_verify:
+        manager.register(HookEvent.POST_VERIFY, AutoVerifyHook())
+    if not no_bib:
+        manager.register(HookEvent.POST_OUTPUT, AutoBibHook())
+    if not no_report:
+        manager.register(HookEvent.POST_OUTPUT, AutoReportHook())
+    return manager
+
+
 async def _run_single_search(
     params: SearchParams,
     output_dir: str | None,
-    s2_api_key: str | None,
+    sources: list[BaseSource],
+    hook_manager: HookManager | None,
 ) -> SearchResult:
-    searcher = TargetedSearch(sources=[SemanticScholarSource(api_key=s2_api_key)])
+    searcher = TargetedSearch(sources=sources, hook_manager=hook_manager)
     try:
         return await searcher.search(params=params, output_dir=output_dir)
     finally:
@@ -97,10 +154,11 @@ async def _run_multi_query_search(
     queries: list[str],
     base_params: SearchParams,
     output_dir: str | None,
-    s2_api_key: str | None,
+    sources: list[BaseSource],
     expansion_trace: ExpansionTrace | None,
+    hook_manager: HookManager | None,
 ) -> SearchResult:
-    searcher = TargetedSearch(sources=[SemanticScholarSource(api_key=s2_api_key)])
+    searcher = TargetedSearch(sources=sources, hook_manager=hook_manager)
     try:
         return await searcher.multi_query_search(
             queries=queries,
@@ -148,10 +206,48 @@ def main() -> None:
     help="If set, only output papers with relevance_score >= threshold. Relevance scores must be pre-filled in results (e.g. by Agent).",
 )
 @click.option(
+    "--source",
+    "-s",
+    multiple=True,
+    type=click.Choice(["s2", "openalex", "arxiv", "all"], case_sensitive=False),
+    default=["all"],
+    help="Data sources to search. Can specify multiple. Default: all.",
+)
+@click.option(
+    "--openalex-email",
+    envvar="OPENALEX_EMAIL",
+    default=None,
+    help="Email for OpenAlex polite pool (higher rate limit).",
+)
+@click.option(
     "--s2-api-key",
     envvar="S2_API_KEY",
     default=None,
     help="Semantic Scholar API key",
+)
+@click.option(
+    "--no-hooks",
+    is_flag=True,
+    default=False,
+    help="Disable all hooks (no BibTeX, no report, no auto-verify).",
+)
+@click.option(
+    "--no-bib",
+    is_flag=True,
+    default=False,
+    help="Disable automatic BibTeX generation.",
+)
+@click.option(
+    "--no-report",
+    is_flag=True,
+    default=False,
+    help="Disable automatic Markdown report generation.",
+)
+@click.option(
+    "--no-auto-verify",
+    is_flag=True,
+    default=False,
+    help="Disable automatic metadata quality check.",
 )
 def search(
     query: str | None,
@@ -164,7 +260,13 @@ def search(
     extra_query: tuple[str, ...],
     queries_file: Path | None,
     relevance_threshold: int | None,
+    source: tuple[str, ...],
+    openalex_email: str | None,
     s2_api_key: str | None,
+    no_hooks: bool,
+    no_bib: bool,
+    no_report: bool,
+    no_auto_verify: bool,
 ) -> None:
     """Run a targeted literature search."""
     if (year_start is None) != (year_end is None):
@@ -181,9 +283,31 @@ def search(
                 "QUERY is required unless --queries-file is provided"
             )
         queries = _normalize_queries([query, *extra_query])
+        if len(queries) > 1:
+            expansion_trace = ExpansionTrace(
+                original_query=queries[0],
+                variants=[
+                    QueryVariant(
+                        query=variant_query,
+                        strategy="manual",
+                        rationale="Provided via --extra-query",
+                    )
+                    for variant_query in queries[1:]
+                ],
+                all_queries=queries,
+            )
 
     if not queries:
         raise click.ClickException("At least one non-empty query is required")
+
+    sources = _build_sources(source, s2_api_key, openalex_email)
+    hook_manager = _build_hook_manager(
+        no_hooks=no_hooks,
+        no_bib=no_bib,
+        no_report=no_report,
+        no_auto_verify=no_auto_verify,
+    )
+    source_names = [source.name for source in sources]
 
     base_query = expansion_trace.original_query if expansion_trace else queries[0]
     params = SearchParams(
@@ -194,11 +318,14 @@ def search(
         sort_by=sort,
     )
 
+    console = Console()
+    console.print(f"Sources: {', '.join(source_names)}")
+
     try:
         if len(queries) == 1:
             single_params = params.model_copy(update={"query": queries[0]})
             result = asyncio.run(
-                _run_single_search(single_params, output_dir, s2_api_key)
+                _run_single_search(single_params, output_dir, sources, hook_manager)
             )
         else:
             result = asyncio.run(
@@ -206,8 +333,9 @@ def search(
                     queries=queries,
                     base_params=params,
                     output_dir=output_dir,
-                    s2_api_key=s2_api_key,
+                    sources=sources,
                     expansion_trace=expansion_trace,
+                    hook_manager=hook_manager,
                 )
             )
     except SourceError as exc:
@@ -218,7 +346,6 @@ def search(
         result.meta.expansion = expansion_trace
         should_persist = True
 
-    console = Console()
     if relevance_threshold is not None:
         before_count, after_count = _apply_relevance_threshold(result, relevance_threshold)
         console.print(
@@ -228,6 +355,16 @@ def search(
 
     if should_persist:
         write_search_output(Path(result.output_dir), result.meta, result.papers)
+        hook_manager.trigger(
+            HookEvent.POST_OUTPUT,
+            HookContext(
+                papers=result.papers,
+                meta=result.meta,
+                output_dir=Path(result.output_dir),
+                event=HookEvent.POST_OUTPUT,
+                console=None,
+            ),
+        )
 
     table = Table(title="Search Results")
     table.add_column("#", justify="right")

@@ -6,23 +6,17 @@ import asyncio
 import logging
 import re
 import time
-from collections import OrderedDict
-from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
 
 from rich.console import Console
 from rich.progress import Progress
 
-from hypo_research.core.models import (
-    ExpansionTrace,
-    PaperResult,
-    SearchParams,
-    SearchResult,
-    SurveyMeta,
-    VerificationLevel,
-)
+from hypo_research.core.dedup import Deduplicator
+from hypo_research.core.models import ExpansionTrace, PaperResult, SearchParams, SearchResult, SurveyMeta
 from hypo_research.core.sources import BaseSource, SemanticScholarSource
+from hypo_research.core.verifier import Verifier
+from hypo_research.hooks import HookContext, HookEvent, HookManager
 from hypo_research.output.json_output import write_search_output
 
 logger = logging.getLogger(__name__)
@@ -38,9 +32,19 @@ def slugify_query(query: str) -> str:
 class TargetedSearch:
     """Targeted literature search: find papers matching specific criteria."""
 
-    def __init__(self, sources: list[BaseSource] | None = None):
+    def __init__(
+        self,
+        sources: list[BaseSource] | None = None,
+        hook_manager: HookManager | None = None,
+    ):
         self.sources = sources or [SemanticScholarSource()]
         self.console = Console()
+        self.deduplicator = Deduplicator()
+        self.verifier = Verifier()
+        if hook_manager is None:
+            hook_manager = HookManager()
+            hook_manager.register_defaults()
+        self.hook_manager = hook_manager
 
     async def search(
         self,
@@ -57,32 +61,72 @@ class TargetedSearch:
             f"query='{params.query}' constraints={constraints}"
         )
 
-        papers = await self._collect_papers(
-            params=params,
-            enable_source_progress=progress is None,
-        )
-        deduplicated = self._dedup_results(papers)
+        if len(self.sources) > 1:
+            self.console.print(
+                f"Searching: {params.query} ({len(self.sources)} sources)",
+                markup=False,
+            )
 
+        hook_messages: list[str] = []
+        raw_papers, per_source_counts = await self._collect_papers(
+            params=params,
+            enable_source_progress=progress is None and len(self.sources) == 1,
+            print_source_counts=len(self.sources) > 1,
+        )
         meta = SurveyMeta(
             query=params.query,
             params=params,
-            total_results=len(deduplicated),
             sources_used=[source.name for source in self.sources],
+            per_source_counts=per_source_counts,
             output_dir=str(output_path),
         )
+        hook_messages.extend(
+            self._trigger_hooks(HookEvent.POST_SEARCH, raw_papers, meta, output_path)
+        )
+
+        deduplicated = self.deduplicator.dedup(raw_papers)
+        meta.pre_filter_count = len(deduplicated)
+        hook_messages.extend(
+            self._trigger_hooks(HookEvent.POST_DEDUP, deduplicated, meta, output_path)
+        )
+
+        deduplicated = self.verifier.verify(deduplicated)
+        verified_count, single_source_count = self._verification_counts(deduplicated)
+        meta.total_results = len(deduplicated)
+        meta.verified_count = verified_count
+        meta.single_source_count = single_source_count
+        hook_messages.extend(
+            self._trigger_hooks(HookEvent.POST_VERIFY, deduplicated, meta, output_path)
+        )
+
         write_search_output(output_path, meta, deduplicated)
+        hook_messages.extend(
+            self._trigger_hooks(HookEvent.POST_OUTPUT, deduplicated, meta, output_path)
+        )
 
         elapsed = time.perf_counter() - start_time
-        self.console.print(
-            f"[bold green]Search complete[/bold green] total_results={len(deduplicated)} "
-            f"elapsed={elapsed:.2f}s output={output_path}"
-        )
+        if len(self.sources) == 1:
+            self.console.print(
+                f"[bold green]Search complete[/bold green] total_results={len(deduplicated)} "
+                f"elapsed={elapsed:.2f}s output={output_path}"
+            )
+        else:
+            self.console.print(
+                "[bold green]Search complete:[/bold green] "
+                f"1 query x {len(self.sources)} sources -> {len(raw_papers)} raw -> "
+                f"{len(deduplicated)} after dedup"
+            )
+            self.console.print(
+                "Verification: "
+                f"{verified_count} verified (2+ sources), "
+                f"{single_source_count} single-source"
+            )
+            self.console.print(
+                f"[green]Elapsed:[/green] {elapsed:.2f}s [green]Output:[/green] {output_path}"
+            )
 
-        return SearchResult(
-            meta=meta,
-            papers=deduplicated,
-            output_dir=str(output_path),
-        )
+        self._print_hook_summary(hook_messages)
+        return SearchResult(meta=meta, papers=deduplicated, output_dir=str(output_path))
 
     async def multi_query_search(
         self,
@@ -105,56 +149,80 @@ class TargetedSearch:
         if progress is not None:
             task_id = progress.add_task("searching queries", total=len(normalized_queries))
 
+        hook_messages: list[str] = []
         raw_results: list[PaperResult] = []
-        total_queries = len(normalized_queries)
-        for index, query in enumerate(normalized_queries, start=1):
-            self.console.print(
-                f"[{index}/{total_queries}] Searching: {query}",
-                markup=False,
-            )
-            params = base_params.model_copy(update={"query": query})
-            query_results = await self._collect_papers(
-                params=params,
-                enable_source_progress=False,
-            )
-            for paper in query_results:
-                paper.matched_queries = [query]
-            raw_results.extend(query_results)
-
-            self.console.print(
-                f"[{index}/{total_queries}] Retrieved {len(query_results)} papers for '{query}'",
-                markup=False,
-            )
-            if progress is not None and task_id is not None:
-                progress.advance(task_id)
-
-        deduplicated = self._dedup_results(raw_results)
+        aggregate_counts: dict[str, int] = {source.name: 0 for source in self.sources}
         meta = SurveyMeta(
             query=base_params.query,
             params=base_params,
-            total_results=len(deduplicated),
             sources_used=[source.name for source in self.sources],
+            per_source_counts=aggregate_counts,
             output_dir=str(output_path),
             expansion=expansion_trace,
-            pre_filter_count=len(deduplicated),
+        )
+        total_queries = len(normalized_queries)
+        for index, query in enumerate(normalized_queries, start=1):
+            self.console.print(
+                f"[{index}/{total_queries}] Searching: {query} ({len(self.sources)} sources)",
+                markup=False,
+            )
+            params = base_params.model_copy(update={"query": query})
+            query_results, source_counts = await self._collect_papers(
+                params=params,
+                enable_source_progress=False,
+                print_source_counts=True,
+            )
+            for source_name, count in source_counts.items():
+                aggregate_counts[source_name] = aggregate_counts.get(source_name, 0) + count
+
+            for paper in query_results:
+                paper.matched_queries = [query]
+            raw_results.extend(query_results)
+            hook_messages.extend(
+                self._trigger_hooks(HookEvent.POST_SEARCH, query_results, meta, output_path)
+            )
+
+            if progress is not None and task_id is not None:
+                progress.advance(task_id)
+
+        meta.per_source_counts = aggregate_counts
+        deduplicated = self.deduplicator.dedup(raw_results)
+        meta.pre_filter_count = len(deduplicated)
+        hook_messages.extend(
+            self._trigger_hooks(HookEvent.POST_DEDUP, deduplicated, meta, output_path)
+        )
+
+        deduplicated = self.verifier.verify(deduplicated)
+        verified_count, single_source_count = self._verification_counts(deduplicated)
+        meta.total_results = len(deduplicated)
+        meta.verified_count = verified_count
+        meta.single_source_count = single_source_count
+        hook_messages.extend(
+            self._trigger_hooks(HookEvent.POST_VERIFY, deduplicated, meta, output_path)
         )
         write_search_output(output_path, meta, deduplicated)
+        hook_messages.extend(
+            self._trigger_hooks(HookEvent.POST_OUTPUT, deduplicated, meta, output_path)
+        )
 
         elapsed = time.perf_counter() - start_time
         self.console.print(
             "[bold green]Search complete:[/bold green] "
-            f"{len(normalized_queries)} queries -> {len(raw_results)} raw -> "
-            f"{len(deduplicated)} after dedup"
+            f"{len(normalized_queries)} queries x {len(self.sources)} sources -> "
+            f"{len(raw_results)} raw -> {len(deduplicated)} after dedup "
+            f"({verified_count} verified, {single_source_count} single-source)"
+        )
+        self.console.print(
+            "Verification: "
+            f"{verified_count} verified (2+ sources), "
+            f"{single_source_count} single-source"
         )
         self.console.print(
             f"[green]Elapsed:[/green] {elapsed:.2f}s [green]Output:[/green] {output_path}"
         )
 
-        return SearchResult(
-            meta=meta,
-            papers=deduplicated,
-            output_dir=str(output_path),
-        )
+        self._print_hook_summary(hook_messages)
+        return SearchResult(meta=meta, papers=deduplicated, output_dir=str(output_path))
 
     async def close(self) -> None:
         """Close all sources."""
@@ -164,22 +232,36 @@ class TargetedSearch:
         self,
         params: SearchParams,
         enable_source_progress: bool,
-    ) -> list[PaperResult]:
-        source_results = await asyncio.gather(
+        print_source_counts: bool,
+    ) -> tuple[list[PaperResult], dict[str, int]]:
+        results = await asyncio.gather(
             *[
                 self._search_source(
-                    source,
-                    params,
+                    source=source,
+                    params=params,
                     enable_source_progress=enable_source_progress,
                 )
                 for source in self.sources
-            ]
+            ],
+            return_exceptions=True,
         )
-        return [
-            paper
-            for papers_from_source in source_results
-            for paper in papers_from_source
-        ]
+
+        collected: list[PaperResult] = []
+        per_source_counts: dict[str, int] = {}
+        for source, result in zip(self.sources, results, strict=False):
+            if isinstance(result, Exception):
+                logger.warning("[%s] search failed: %s", source.name, result)
+                per_source_counts[source.name] = 0
+                if print_source_counts:
+                    self.console.print(f"  {source.name}: failed")
+                continue
+
+            per_source_counts[source.name] = len(result)
+            collected.extend(result)
+            if print_source_counts:
+                self.console.print(f"  {source.name}: {len(result)} papers")
+
+        return collected, per_source_counts
 
     async def _search_source(
         self,
@@ -238,44 +320,42 @@ class TargetedSearch:
         for index, query in enumerate(queries, start=1):
             self.console.print(f"  [{index}/{total}] {query}", markup=False)
 
-    def _dedup_results(self, papers: Iterable[PaperResult]) -> list[PaperResult]:
-        ordered: OrderedDict[str, PaperResult] = OrderedDict()
-        for paper in papers:
-            key = self._paper_key(paper)
-            existing = ordered.get(key)
-            if existing is None:
-                ordered[key] = paper
-                continue
+    def _trigger_hooks(
+        self,
+        event: HookEvent,
+        papers: list[PaperResult],
+        meta: SurveyMeta,
+        output_path: Path,
+    ) -> list[str]:
+        if self.hook_manager is None:
+            return []
+        ctx = HookContext(
+            papers=papers,
+            meta=meta,
+            output_dir=output_path,
+            event=event,
+            console=self.console,
+        )
+        self.hook_manager.trigger(event, ctx)
+        return ctx.messages
 
-            existing.sources = list(dict.fromkeys(existing.sources + paper.sources))
-            if len(existing.sources) >= 2:
-                existing.verification = VerificationLevel.VERIFIED
-            if not existing.doi and paper.doi:
-                existing.doi = paper.doi
-            if not existing.arxiv_id and paper.arxiv_id:
-                existing.arxiv_id = paper.arxiv_id
-            if not existing.abstract and paper.abstract:
-                existing.abstract = paper.abstract
-            if existing.relevance_score is None and paper.relevance_score is not None:
-                existing.relevance_score = paper.relevance_score
-            if not existing.relevance_reason and paper.relevance_reason:
-                existing.relevance_reason = paper.relevance_reason
-
-            merged_queries = list(
-                dict.fromkeys((existing.matched_queries or []) + (paper.matched_queries or []))
-            )
-            if merged_queries:
-                existing.matched_queries = merged_queries
-
-        return list(ordered.values())
+    def _print_hook_summary(self, messages: list[str]) -> None:
+        if not messages:
+            return
+        self.console.print("Hooks:")
+        for message in messages:
+            self.console.print(f"  [green]\u2714[/green] {message}")
 
     @staticmethod
-    def _paper_key(paper: PaperResult) -> str:
-        if paper.doi:
-            return f"doi:{paper.doi.lower()}"
-        if paper.arxiv_id:
-            return f"arxiv:{paper.arxiv_id.lower()}"
-        if paper.s2_paper_id:
-            return f"s2:{paper.s2_paper_id.lower()}"
-        normalized_title = re.sub(r"\s+", " ", paper.title.strip().lower())
-        return f"title:{normalized_title}:{paper.year or 'na'}"
+    def _verification_counts(papers: list[PaperResult]) -> tuple[int, int]:
+        verified = sum(
+            1
+            for paper in papers
+            if getattr(paper.verification, "value", paper.verification) == "verified"
+        )
+        single_source = sum(
+            1
+            for paper in papers
+            if getattr(paper.verification, "value", paper.verification) == "single_source"
+        )
+        return verified, single_source

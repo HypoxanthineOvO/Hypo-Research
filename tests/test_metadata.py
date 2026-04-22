@@ -26,6 +26,7 @@ def make_paper(
     matched_queries: list[str] | None = None,
     relevance_score: int | None = None,
     relevance_reason: str | None = None,
+    verification: str = "single_source",
 ) -> PaperResult:
     return PaperResult(
         title=title,
@@ -40,6 +41,7 @@ def make_paper(
         reference_count=3,
         source_api="semantic_scholar",
         sources=["semantic_scholar"],
+        verification=verification,
         matched_queries=matched_queries,
         relevance_score=relevance_score,
         relevance_reason=relevance_reason,
@@ -72,6 +74,8 @@ def test_paper_result_new_fields_serialize(tmp_path: Path) -> None:
     assert payload[0]["matched_queries"] == ["q1", "q2"]
     assert payload[0]["relevance_score"] == 4
     assert payload[0]["relevance_reason"] == "Highly relevant"
+    assert payload[0]["sources"] == ["semantic_scholar"]
+    assert payload[0]["verification"] == "single_source"
 
 
 def test_survey_meta_new_fields_serialize(tmp_path: Path) -> None:
@@ -94,6 +98,9 @@ def test_survey_meta_new_fields_serialize(tmp_path: Path) -> None:
         sources_used=["semantic_scholar"],
         output_dir=str(output_dir),
         expansion=trace,
+        per_source_counts={"semantic_scholar": 5, "openalex": 3},
+        verified_count=2,
+        single_source_count=1,
         pre_filter_count=5,
         post_filter_count=3,
         relevance_threshold=3,
@@ -103,6 +110,9 @@ def test_survey_meta_new_fields_serialize(tmp_path: Path) -> None:
 
     payload = json.loads((output_dir / "meta.json").read_text(encoding="utf-8"))
     assert payload["expansion"]["original_query"] == "cryogenic computing GPU"
+    assert payload["per_source_counts"] == {"semantic_scholar": 5, "openalex": 3}
+    assert payload["verified_count"] == 2
+    assert payload["single_source_count"] == 1
     assert payload["pre_filter_count"] == 5
     assert payload["post_filter_count"] == 3
     assert payload["relevance_threshold"] == 3
@@ -136,7 +146,8 @@ def test_cli_relevance_threshold_filters_results(tmp_path: Path) -> None:
     async def fake_run_single_search(
         params: SearchParams,
         output_dir: str | None,
-        s2_api_key: str | None,
+        sources: list[object],
+        hook_manager: object,
     ) -> SearchResult:
         papers = [
             make_paper("Keep Paper", relevance_score=4, relevance_reason="Relevant"),

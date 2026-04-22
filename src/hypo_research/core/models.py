@@ -29,6 +29,7 @@ class PaperResult(BaseModel):
     doi: str | None = None
     s2_paper_id: str | None = None
     arxiv_id: str | None = None
+    openalex_id: str | None = None
     url: str
     citation_count: int | None = None
     reference_count: int | None = None
@@ -38,6 +39,7 @@ class PaperResult(BaseModel):
     matched_queries: list[str] | None = None
     relevance_score: int | None = None
     relevance_reason: str | None = None
+    metadata_issues: list[MetadataIssue] | None = None
     raw_response: dict = Field(default_factory=dict, repr=False)
 
 
@@ -93,6 +95,14 @@ class QueryVariant(BaseModel):
     rationale: str
 
 
+class MetadataIssue(BaseModel):
+    """A metadata quality issue found during auto verification."""
+
+    field: str
+    severity: str
+    message: str
+
+
 class ExpansionTrace(BaseModel):
     """Records how the original query was expanded."""
 
@@ -111,6 +121,12 @@ class SurveyMeta(BaseModel):
     total_results: int = 0
     sources_used: list[str] = Field(default_factory=list)
     output_dir: str = ""
+    per_source_counts: dict[str, int] | None = None
+    verified_count: int | None = None
+    single_source_count: int | None = None
+    metadata_warnings_count: int | None = None
+    metadata_errors_count: int | None = None
+    papers_with_issues_count: int | None = None
     expansion: ExpansionTrace | None = None
     pre_filter_count: int | None = None
     post_filter_count: int | None = None

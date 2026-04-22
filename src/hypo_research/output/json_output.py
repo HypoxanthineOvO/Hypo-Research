@@ -1,4 +1,4 @@
-"""JSON output helpers for search results."""
+"""JSON output helpers for search results and provenance metadata."""
 
 from __future__ import annotations
 

@@ -15,10 +15,14 @@ class RateLimitError(SourceError):
 
 
 from .base import BaseSource
+from .arxiv import ArxivSource
+from .openalex import OpenAlexSource
 from .semantic_scholar import SemanticScholarSource
 
 __all__ = [
+    "ArxivSource",
     "BaseSource",
+    "OpenAlexSource",
     "RateLimitError",
     "SemanticScholarSource",
     "SourceError",

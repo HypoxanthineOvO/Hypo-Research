@@ -1,0 +1,153 @@
+"""Markdown report generation helpers."""
+
+from __future__ import annotations
+
+from datetime import datetime
+from pathlib import Path
+
+from hypo_research.core.models import PaperResult, SurveyMeta
+
+
+def generate_report(
+    papers: list[PaperResult],
+    meta: SurveyMeta,
+    output_path: Path,
+) -> Path:
+    """Generate a Markdown survey report."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    lines: list[str] = [
+        "# Literature Survey Report",
+        "",
+        "## Search Summary",
+        "",
+        f'- **Query**: "{meta.query}"',
+        f"- **Date**: {_format_date(meta.created_at)}",
+        f"- **Sources**: {_format_sources(meta.sources_used)}",
+        f"- **Results**: {len(papers)} papers ({meta.verified_count or 0} verified, {meta.single_source_count or 0} single-source)",
+        f"- **Query Expansion**: {_format_expansion(meta)}",
+        "",
+        "## Results by Verification Status",
+        "",
+    ]
+
+    groups = [
+        (
+            "Verified (2+ sources)",
+            [
+                paper
+                for paper in papers
+                if getattr(paper.verification, "value", paper.verification) == "verified"
+            ],
+        ),
+        (
+            "Single Source",
+            [
+                paper
+                for paper in papers
+                if getattr(paper.verification, "value", paper.verification) == "single_source"
+            ],
+        ),
+        (
+            "Unverified",
+            [
+                paper
+                for paper in papers
+                if getattr(paper.verification, "value", paper.verification) == "unverified"
+            ],
+        ),
+    ]
+    for heading, grouped_papers in groups:
+        if grouped_papers:
+            lines.extend(_render_paper_section(heading, grouped_papers))
+
+    lines.extend(_render_metadata_quality(meta, papers))
+    lines.extend(_render_statistics(meta, papers))
+
+    output_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    return output_path
+
+
+def _render_paper_section(title: str, papers: list[PaperResult]) -> list[str]:
+    lines = [f"### {title}", ""]
+    for index, paper in enumerate(papers, start=1):
+        authors = ", ".join(paper.authors) or "Unknown authors"
+        venue = paper.venue or "Unknown venue"
+        doi = paper.doi or "N/A"
+        sources = ", ".join(_pretty_source_name(source) for source in paper.sources)
+        abstract_excerpt = (paper.abstract or "")[:200]
+
+        lines.append(f"{index}. **{paper.title}** ({paper.year or 'Unknown year'})")
+        lines.append(f"   {authors} — {venue}")
+        lines.append(f"   DOI: {doi} | Sources: {sources}")
+        if abstract_excerpt:
+            lines.append(f"   > {abstract_excerpt}")
+        lines.append("")
+    return lines
+
+
+def _render_metadata_quality(meta: SurveyMeta, papers: list[PaperResult]) -> list[str]:
+    lines = [
+        "## Metadata Quality",
+        "",
+        f"- Papers with issues: {meta.papers_with_issues_count or 0}",
+        f"- Warnings: {meta.metadata_warnings_count or 0}",
+        f"- Errors: {meta.metadata_errors_count or 0}",
+    ]
+
+    issue_lines: list[str] = []
+    for paper in papers:
+        for issue in paper.metadata_issues or []:
+            issue_lines.append(
+                f"- {paper.title}: {issue.severity} on `{issue.field}` ({issue.message})"
+            )
+
+    if issue_lines:
+        lines.append("")
+        lines.extend(issue_lines)
+
+    lines.append("")
+    return lines
+
+
+def _render_statistics(meta: SurveyMeta, papers: list[PaperResult]) -> list[str]:
+    lines = [
+        "## Statistics",
+        "",
+        "| Source | Papers |",
+        "|--------|--------|",
+    ]
+    for source_name, count in (meta.per_source_counts or {}).items():
+        lines.append(f"| {_pretty_source_name(source_name)} | {count} |")
+    lines.append(f"| **After dedup** | **{len(papers)}** |")
+    lines.append("")
+    return lines
+
+
+def _format_date(value: datetime) -> str:
+    return value.strftime("%Y-%m-%d")
+
+
+def _format_sources(sources: list[str]) -> str:
+    if not sources:
+        return "Unknown"
+    return ", ".join(_pretty_source_name(source) for source in sources)
+
+
+def _format_expansion(meta: SurveyMeta) -> str:
+    if meta.expansion is None:
+        return "0 variants used"
+    count = len(meta.expansion.variants)
+    if count == 0:
+        return "0 variants used"
+    variants = ", ".join(variant.query for variant in meta.expansion.variants)
+    return f"{count} variants used ({variants})"
+
+
+def _pretty_source_name(source: str) -> str:
+    mapping = {
+        "semantic_scholar": "Semantic Scholar",
+        "openalex": "OpenAlex",
+        "arxiv": "arXiv",
+    }
+    return mapping.get(source, source)
