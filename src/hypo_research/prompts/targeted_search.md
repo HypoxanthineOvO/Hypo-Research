@@ -4,7 +4,7 @@
 
 This prompt is part of the Hypo-Research Skill.
 - Project AGENTS.md: see `AGENTS.md` at project root for capability overview
-- Skills: `skills/{survey,quick-search,review-results}/SKILL.md`
+- Skills: `skills/{hypo-survey,hypo-search,hypo-screen}/SKILL.md`
 - Installer: `install-skills.sh`
 - User guide: `docs/skill-usage-guide.md`
 

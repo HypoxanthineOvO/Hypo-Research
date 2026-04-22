@@ -1,5 +1,5 @@
 ---
-name: survey
+name: hypo-survey
 description: >
   Run a comprehensive multi-source literature survey. Searches Semantic Scholar,
   OpenAlex, and arXiv in parallel, deduplicates, cross-verifies, and generates
@@ -7,7 +7,7 @@ description: >
 license: MIT
 ---
 
-# /survey — 文献调研
+# /hypo-survey — 综合文献调研
 
 执行一次完整的多源文献调研。
 
@@ -31,7 +31,7 @@ $ARGUMENTS
 2. 构造并执行命令：
 
 ```bash
-hypo-research search "<main query>" \
+uv run hypo-research search "<main query>" \
   -eq "<expanded 1>" \
   -eq "<expanded 2>" \
   --year-start <year_start> \

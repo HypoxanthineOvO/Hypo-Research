@@ -20,13 +20,13 @@
 本项目的 Skills 位于 `skills/` 目录，遵循 Agent Skills 开放标准（SKILL.md + YAML frontmatter）。
 
 可用 Skills：
-- `survey` — 综合文献调研（多源检索 + 去重 + 验证 + 报告生成）
-- `quick-search` — 快速单次检索
-- `review-results` — 审阅已有调研结果
+- `hypo-survey` — 综合文献调研（发散式扩池，多源检索 + 去重 + 验证 + 报告生成）
+- `hypo-search` — 快速单次检索（点查 / 补充）
+- `hypo-screen` — 按自定义规则筛选、分类、生成分析报告
 
 调用方式：
-- Claude Code：`/survey` 或 `$survey`
-- Codex CLI：运行 `./install-skills.sh` 后，`/survey` 或 `/prompts:survey`
+- Claude Code：`/hypo-survey` 或 `$hypo-survey`
+- Codex CLI：运行 `./install-skills.sh` 后，`/hypo-survey` 或 `/prompts:hypo-survey`
 
 首次使用前运行 `./install-skills.sh` 安装 Skills 到各 Agent 的约定位置。
 
@@ -46,6 +46,8 @@
 - 搜一下 XXX 相关的论文
 - 做一个关于 XXX 的文献调研
 - 找 XXX 领域最近几年的论文
+- 按规则筛选 / 分类已有调研结果
+- 检查某个候选池是否漏掉关键论文
 
 ## 快速使用
 

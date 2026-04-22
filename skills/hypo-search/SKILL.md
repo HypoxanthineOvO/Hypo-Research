@@ -1,14 +1,14 @@
 ---
-name: quick-search
+name: hypo-search
 description: >
   Run a fast literature lookup for a single query across the configured sources
   and summarize the top results for the agent.
 license: MIT
 ---
 
-# /quick-search — 快速文献检索
+# /hypo-search — 快速文献检索
 
-快速检索单个 query，不做 query 扩展。
+快速检索单个 query，不做 query 扩展。适合已知关键词的精确查找、或对 /hypo-survey 结果的补充检索。
 
 ## 参数
 
@@ -21,7 +21,7 @@ $ARGUMENTS
 1. 直接执行：
 
 ```bash
-hypo-research search "<query>" \
+uv run hypo-research search "<query>" \
   --output-dir data/surveys/quick_<timestamp>
 ```
 
