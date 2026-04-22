@@ -1,3 +1,11 @@
+---
+name: quick-search
+description: >
+  Run a fast literature lookup for a single query across the configured sources
+  and summarize the top results for the agent.
+license: MIT
+---
+
 # /quick-search — 快速文献检索
 
 快速检索单个 query，不做 query 扩展。

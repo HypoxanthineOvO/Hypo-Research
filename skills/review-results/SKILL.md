@@ -1,3 +1,11 @@
+---
+name: review-results
+description: >
+  Inspect an existing Hypo-Research output directory, review the metadata and
+  verification quality, and suggest follow-up actions.
+license: MIT
+---
+
 # /review-results — 审查调研结果
 
 审查已有的文献调研结果目录，提供分析和建议。

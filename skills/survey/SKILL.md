@@ -1,3 +1,12 @@
+---
+name: survey
+description: >
+  Run a comprehensive multi-source literature survey. Searches Semantic Scholar,
+  OpenAlex, and arXiv in parallel, deduplicates, cross-verifies, and generates
+  a structured report with BibTeX references.
+license: MIT
+---
+
 # /survey — 文献调研
 
 执行一次完整的多源文献调研。

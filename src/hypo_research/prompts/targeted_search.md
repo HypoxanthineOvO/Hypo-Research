@@ -4,7 +4,8 @@
 
 This prompt is part of the Hypo-Research Skill.
 - Project AGENTS.md: see `AGENTS.md` at project root for capability overview
-- Slash commands: `.claude/commands/{survey,quick-search,review-results}.md`
+- Skills: `skills/{survey,quick-search,review-results}/SKILL.md`
+- Installer: `install-skills.sh`
 - User guide: `docs/skill-usage-guide.md`
 
 ## 概述
