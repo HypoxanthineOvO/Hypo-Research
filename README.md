@@ -398,7 +398,7 @@ uv run hypo-research --help
 | v0.1.0 | 0bc7681 | M1-M5 | 4 (survey/search/screen/cite) |
 | v0.1.1 | 1705f5c | M5.1 | 4 (uv migration, arXiv fix) |
 | v0.2.0 | 14dcc84 | M6 | 4 + cite graph traversal |
-| v0.3.0 | 874218e | M7 | 8 (+ lint/verify/polish/translate) |
+| v0.3.0 | 54199c6 | M7 | 8 (+ lint/verify/polish/translate) |
 
 ## 📄 License
 
