@@ -1,0 +1,8 @@
+data/surveys/
+!data/.gitkeep
+__pycache__/
+*.pyc
+.pytest_cache/
+dist/
+*.egg-info/
+.venv/
