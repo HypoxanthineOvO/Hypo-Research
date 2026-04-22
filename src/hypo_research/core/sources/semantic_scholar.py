@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from collections.abc import Callable
 from typing import Any
 from urllib.parse import quote
@@ -33,23 +34,25 @@ class SemanticScholarSource(BaseSource):
     MAX_RETRIES = 3
 
     def __init__(self, api_key: str | None = None):
-        headers = {
+        self.api_key = api_key or os.environ.get("SEMANTIC_SCHOLAR_API_KEY")
+        self.headers = {
             "Accept": "application/json",
             "User-Agent": "hypo-research/0.1.0",
         }
-        if api_key:
-            headers["x-api-key"] = api_key
+        if self.api_key:
+            self.headers["x-api-key"] = self.api_key
 
         self._client = httpx.AsyncClient(
             base_url=self.BASE_URL,
-            headers=headers,
+            headers=self.headers,
             timeout=30.0,
         )
-        self._limiter = RateLimiter(
-            max_tokens=95,
-            refill_period=300,
+        self.rate_limiter = RateLimiter(
+            max_tokens=10 if self.api_key else 1,
+            refill_period=1.0,
             name="semantic_scholar",
         )
+        self._limiter = self.rate_limiter
         self._progress_callback: ProgressCallback | None = None
 
     @property

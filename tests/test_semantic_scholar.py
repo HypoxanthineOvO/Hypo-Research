@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import httpx
 import pytest
 import respx
@@ -164,3 +165,32 @@ async def test_get_paper_returns_single_record() -> None:
     assert paper is not None
     assert paper.s2_paper_id == "abc123"
     assert paper.title == SAMPLE_S2_PAPER["title"]
+
+
+def test_s2_uses_api_key_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SEMANTIC_SCHOLAR_API_KEY", "test-key-123")
+
+    source = SemanticScholarSource()
+
+    assert source.api_key == "test-key-123"
+    assert source.headers["x-api-key"] == "test-key-123"
+    asyncio.run(source.close())
+
+
+def test_s2_works_without_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SEMANTIC_SCHOLAR_API_KEY", raising=False)
+
+    source = SemanticScholarSource()
+
+    assert source.api_key is None
+    assert "x-api-key" not in source.headers
+    asyncio.run(source.close())
+
+
+def test_s2_rate_limiter_adjusts_with_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SEMANTIC_SCHOLAR_API_KEY", "test-key")
+
+    source = SemanticScholarSource()
+
+    assert source.rate_limiter.max_requests >= 10
+    asyncio.run(source.close())

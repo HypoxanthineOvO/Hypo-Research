@@ -221,7 +221,7 @@ def main() -> None:
 )
 @click.option(
     "--s2-api-key",
-    envvar="S2_API_KEY",
+    envvar=["SEMANTIC_SCHOLAR_API_KEY", "S2_API_KEY"],
     default=None,
     help="Semantic Scholar API key",
 )

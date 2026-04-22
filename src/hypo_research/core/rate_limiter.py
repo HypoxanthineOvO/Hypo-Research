@@ -68,3 +68,13 @@ class RateLimiter:
 
     async def __aexit__(self, *exc: object) -> None:
         return None
+
+    @property
+    def max_requests(self) -> int:
+        """Alias for compatibility with fixed-window terminology."""
+        return self.max_tokens
+
+    @property
+    def period(self) -> float:
+        """Alias for compatibility with fixed-window terminology."""
+        return self.refill_period
