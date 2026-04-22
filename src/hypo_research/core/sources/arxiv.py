@@ -108,11 +108,11 @@ class ArxivSource(BaseSource):
             return None
         return self._paper_from_entry(entries[0])
 
-    async def get_citations(self, paper_id: str, limit: int = 100) -> list[str]:
+    async def get_citations(self, paper_id: str, limit: int = 100) -> list[PaperResult]:
         """Return empty citations because arXiv API does not provide them."""
         return []
 
-    async def get_references(self, paper_id: str, limit: int = 100) -> list[str]:
+    async def get_references(self, paper_id: str, limit: int = 100) -> list[PaperResult]:
         """Return empty references because arXiv API does not provide them."""
         return []
 

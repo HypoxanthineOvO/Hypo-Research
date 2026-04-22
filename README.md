@@ -127,13 +127,35 @@ Agent 会逐篇标注类别，输出：
 
 ---
 
+### `/hypo-cite` — 引文图扩展
+
+从种子论文出发，通过引用 / 被引关系发现相关论文。输出格式与 `/hypo-survey` 兼容，可直接传给 `/hypo-screen`。
+
+| 参数 | 必填 | 说明 | 示例 |
+|------|------|------|------|
+| `seeds` | ✅ | 种子论文（DOI / arXiv ID / 标题） | `"Cinnamon, CraterLake, F1"` |
+| `depth` |  | 遍历深度 | `1`（默认）/ `2` |
+| `direction` |  | 方向 | `both`（默认）/ `citations` / `references` |
+| `year_range` |  | 年份过滤 | `2020-2026` |
+
+**示例：**
+
+```text
+/hypo-cite seeds="Cinnamon, CraterLake, F1" depth=1 direction=both year_range=2020-2026
+```
+
+---
+
 ### 推荐工作流
 
 ```text
 # Step 1：综合调研，建立候选池
 /hypo-survey topic="FHE hardware accelerator" year_range=2020-2026
 
-# Step 2：按自定义规则筛选分类
+# Step 2：从核心论文扩展引用图
+/hypo-cite seeds="Cinnamon, CraterLake, F1, ARK" depth=1
+
+# Step 3：按自定义规则筛选分类
 /hypo-screen path="data/surveys/2026-04-22_fhe_hw/" rules="""
 A: FHE + 大模型 + 硬件加速
 B: FHE + 硬件（CNN 级别）
@@ -142,11 +164,11 @@ D: CIM/PIM + FHE
 排除: MPC/GC/OT
 """
 
-# Step 3：根据分类报告，补充检索薄弱方向
+# Step 4：根据分类报告，补充检索薄弱方向
 /hypo-search query="NTT hardware architecture survey"
 /hypo-search query="TFHE gate bootstrapping accelerator"
 
-# Step 4：合并补充结果，重新筛选
+# Step 5：合并补充结果，重新筛选
 /hypo-screen path="data/surveys/2026-04-22_fhe_hw/" rules="..."
 ```
 

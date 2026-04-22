@@ -17,12 +17,14 @@ uv sync
 | 命令 | 说明 | 适用场景 |
 |------|------|----------|
 | `/hypo-survey` | 综合文献调研 | 发散式扩池，尽可能做大候选集 |
+| `/hypo-cite` | 引文图扩展 | 从已知核心论文沿引用 / 被引关系发现相关工作 |
 | `/hypo-screen` | 文献筛选分类 | 按自定义规则收敛、分类、出分析报告 |
 | `/hypo-search` | 快速文献检索 | 单次点查、补检、精确查找 |
 
 ## 在 Claude Code 中使用
 
 - `/hypo-survey topic="cryogenic computing for GPU" year_range=2020-2026`
+- `/hypo-cite seeds="Cinnamon, CraterLake, F1" depth=1 direction=both`
 - `/hypo-screen path="data/surveys/2026-04-22_cryo_gpu/" rules="A: cryo-CMOS; B: superconducting control"`
 - `/hypo-search query="TFHE bootstrapping accelerator"`
 
@@ -31,6 +33,7 @@ uv sync
 执行 `./install-skills.sh` 后，可直接使用：
 
 - `/hypo-survey` 或 `/prompts:hypo-survey`
+- `/hypo-cite` 或 `/prompts:hypo-cite`
 - `/hypo-screen` 或 `/prompts:hypo-screen`
 - `/hypo-search` 或 `/prompts:hypo-search`
 
@@ -39,9 +42,10 @@ uv sync
 ## 典型工作流
 
 1. 用 `/hypo-survey` 对主题做多 query、多源并行检索，建立候选池。
-2. 用 `/hypo-screen` 按你的分类规则收敛结果，并检查 recall checklist。
-3. 用 `/hypo-search` 对薄弱方向做补充点查。
-4. 重新筛选，输出最终分类报告和 BibTeX。
+2. 用 `/hypo-cite` 从已知核心论文沿引用图扩展候选池。
+3. 用 `/hypo-screen` 按你的分类规则收敛结果，并检查 recall checklist。
+4. 用 `/hypo-search` 对薄弱方向做补充点查。
+5. 重新筛选，输出最终分类报告和 BibTeX。
 
 ## 输出文件
 

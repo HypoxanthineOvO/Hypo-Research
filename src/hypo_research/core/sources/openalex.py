@@ -7,6 +7,7 @@ import logging
 import os
 from collections.abc import Callable
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -53,6 +54,8 @@ class OpenAlexSource(BaseSource):
         "cited_by_count,abstract_inverted_index,referenced_works,type"
     )
     PAGE_SIZE = 50
+    CITATION_PAGE_SIZE = 200
+    REFERENCE_BATCH_SIZE = 50
     MAX_RETRIES = 3
 
     def __init__(
@@ -60,7 +63,7 @@ class OpenAlexSource(BaseSource):
         rate_limiter: RateLimiter | None = None,
         email: str | None = None,
     ):
-        self.email = email or os.getenv("OPENALEX_EMAIL")
+        self.email = email or os.getenv("OPENALEX_EMAIL") or "hyx021203@163.com"
         headers = {
             "Accept": "application/json",
             "User-Agent": "hypo-research/0.1.0",
@@ -127,28 +130,27 @@ class OpenAlexSource(BaseSource):
 
     async def get_paper(self, paper_id: str) -> PaperResult | None:
         """Fetch a single work by OpenAlex ID."""
-        identifier = self._normalize_openalex_id(paper_id)
         try:
-            payload = await self._request_json(f"/works/{identifier}")
+            payload = await self._get_work_payload(paper_id)
         except SourceError as exc:
             if exc.status_code == 404:
                 return None
             raise
         return self._paper_from_payload(payload)
 
-    async def get_citations(self, paper_id: str, limit: int = 100) -> list[str]:
-        """Return OpenAlex IDs of works citing the given paper."""
-        canonical_id = self._canonical_openalex_id(paper_id)
-        citations: list[str] = []
+    async def get_citations(self, paper_id: str, limit: int = 500) -> list[PaperResult]:
+        """Return works citing the given paper."""
+        filter_value = self._citation_filter_value(paper_id)
+        citations: list[PaperResult] = []
         cursor = "*"
 
         while len(citations) < limit:
-            page_size = min(self.PAGE_SIZE, limit - len(citations))
+            page_size = min(self.CITATION_PAGE_SIZE, limit - len(citations))
             payload = await self._request_json(
                 "/works",
                 params={
-                    "filter": f"cites:{canonical_id}",
-                    "select": "id",
+                    "filter": f"cites:{filter_value}",
+                    "select": self.DEFAULT_SELECT,
                     "per_page": page_size,
                     "cursor": cursor,
                 },
@@ -157,24 +159,53 @@ class OpenAlexSource(BaseSource):
             if not results:
                 break
 
-            citations.extend(self._normalize_openalex_id(item.get("id", "")) for item in results if item.get("id"))
+            citations.extend(
+                self._paper_from_payload(item)
+                for item in results
+                if isinstance(item, dict)
+            )
             cursor = payload.get("meta", {}).get("next_cursor")
             if not cursor:
                 break
 
         return citations[:limit]
 
-    async def get_references(self, paper_id: str, limit: int = 100) -> list[str]:
-        """Return OpenAlex IDs referenced by the given paper."""
-        paper = await self.get_paper(paper_id)
-        if paper is None:
+    async def get_references(self, paper_id: str, limit: int = 500) -> list[PaperResult]:
+        """Return works referenced by the given paper."""
+        try:
+            payload = await self._get_work_payload(paper_id)
+        except SourceError as exc:
+            if exc.status_code == 404:
+                return []
+            raise
+
+        references = payload.get("referenced_works", [])
+        if not references:
             return []
-        references = paper.raw_response.get("referenced_works", [])
-        return [
-            self._normalize_openalex_id(reference)
-            for reference in references[:limit]
+        normalized_references = [
+            self._canonical_openalex_id(reference)
+            for reference in references
             if reference
-        ]
+        ][:limit]
+
+        results: list[PaperResult] = []
+        for index in range(0, len(normalized_references), self.REFERENCE_BATCH_SIZE):
+            batch = normalized_references[index : index + self.REFERENCE_BATCH_SIZE]
+            response = await self._request_json(
+                "/works",
+                params={
+                    "filter": f"openalex:{'|'.join(batch)}",
+                    "select": self.DEFAULT_SELECT,
+                    "per_page": len(batch),
+                },
+            )
+            results.extend(
+                self._paper_from_payload(item)
+                for item in response.get("results", [])
+                if isinstance(item, dict)
+            )
+
+        return results[:limit]
 
     async def close(self) -> None:
         """Close the underlying HTTP client."""
@@ -260,6 +291,10 @@ class OpenAlexSource(BaseSource):
             except ValueError as exc:
                 raise SourceError(self.name, "invalid JSON response") from exc
 
+    async def _get_work_payload(self, paper_id: str) -> dict[str, Any]:
+        identifier = self._identifier_for_path(paper_id)
+        return await self._request_json(f"/works/{identifier}")
+
     def _paper_from_payload(self, payload: dict[str, Any]) -> PaperResult:
         authors = [
             authorship.get("author", {}).get("display_name", "")
@@ -297,12 +332,51 @@ class OpenAlexSource(BaseSource):
 
     @staticmethod
     def _normalize_openalex_id(openalex_id: str) -> str:
+        if not openalex_id:
+            return openalex_id
+        if "openalex.org" not in openalex_id:
+            return openalex_id.rstrip("/")
         return openalex_id.rstrip("/").rsplit("/", 1)[-1]
 
     @staticmethod
     def _canonical_openalex_id(openalex_id: str) -> str:
         normalized = OpenAlexSource._normalize_openalex_id(openalex_id)
         return f"https://openalex.org/{normalized}"
+
+    @staticmethod
+    def _normalize_doi_identifier(identifier: str) -> str:
+        cleaned = identifier.strip()
+        lowered = cleaned.lower()
+        if lowered.startswith("doi:"):
+            cleaned = cleaned[4:]
+            lowered = cleaned.lower()
+        if lowered.startswith("https://doi.org/"):
+            return "https://doi.org/" + cleaned[len("https://doi.org/") :]
+        if lowered.startswith("http://doi.org/"):
+            return "https://doi.org/" + cleaned[len("http://doi.org/") :]
+        if lowered.startswith("http://dx.doi.org/"):
+            return "https://doi.org/" + cleaned[len("http://dx.doi.org/") :]
+        return f"https://doi.org/{cleaned}"
+
+    def _identifier_for_path(self, paper_id: str) -> str:
+        cleaned = paper_id.strip()
+        lowered = cleaned.lower()
+        if cleaned.startswith("W") and cleaned[1:].isdigit():
+            return cleaned
+        if "openalex.org" in lowered:
+            return self._normalize_openalex_id(cleaned)
+        if "/" in cleaned or lowered.startswith("doi:"):
+            return quote(self._normalize_doi_identifier(cleaned), safe=":/")
+        return quote(cleaned, safe=":/")
+
+    def _citation_filter_value(self, paper_id: str) -> str:
+        cleaned = paper_id.strip()
+        lowered = cleaned.lower()
+        if cleaned.startswith("W") and cleaned[1:].isdigit():
+            return cleaned
+        if "openalex.org" in lowered:
+            return self._normalize_openalex_id(cleaned)
+        return self._normalize_doi_identifier(cleaned)
 
     @staticmethod
     def _parse_retry_after(response: httpx.Response) -> float:

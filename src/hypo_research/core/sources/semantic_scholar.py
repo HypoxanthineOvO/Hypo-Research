@@ -31,6 +31,7 @@ class SemanticScholarSource(BaseSource):
         "citationCount,referenceCount,url"
     )
     MAX_PAGE_SIZE = 100
+    RELATIONSHIP_PAGE_SIZE = 1000
     MAX_RETRIES = 3
 
     def __init__(self, api_key: str | None = None):
@@ -128,18 +129,18 @@ class SemanticScholarSource(BaseSource):
             raise
         return self._paper_from_payload(payload)
 
-    async def get_citations(self, paper_id: str, limit: int = 100) -> list[str]:
-        """Return Semantic Scholar IDs of papers that cite the given paper."""
-        return await self._get_relationship_ids(
+    async def get_citations(self, paper_id: str, limit: int = 500) -> list[PaperResult]:
+        """Return papers that cite the given paper."""
+        return await self._get_relationship_papers(
             paper_id=paper_id,
             endpoint="citations",
             nested_key="citingPaper",
             limit=limit,
         )
 
-    async def get_references(self, paper_id: str, limit: int = 100) -> list[str]:
-        """Return Semantic Scholar IDs of papers referenced by the given paper."""
-        return await self._get_relationship_ids(
+    async def get_references(self, paper_id: str, limit: int = 500) -> list[PaperResult]:
+        """Return papers referenced by the given paper."""
+        return await self._get_relationship_papers(
             paper_id=paper_id,
             endpoint="references",
             nested_key="citedPaper",
@@ -150,43 +151,52 @@ class SemanticScholarSource(BaseSource):
         """Close the underlying HTTP client."""
         await self._client.aclose()
 
-    async def _get_relationship_ids(
+    async def _get_relationship_papers(
         self,
         paper_id: str,
         endpoint: str,
         nested_key: str,
         limit: int,
-    ) -> list[str]:
+    ) -> list[PaperResult]:
         encoded_id = quote(paper_id, safe=":")
         offset = 0
-        results: list[str] = []
+        results: list[PaperResult] = []
 
         while len(results) < limit:
-            page_limit = min(self.MAX_PAGE_SIZE, limit - len(results))
-            payload = await self._request_json(
-                "GET",
-                f"/paper/{encoded_id}/{endpoint}",
-                params={
-                    "fields": f"{nested_key}.paperId",
-                    "offset": offset,
-                    "limit": page_limit,
-                },
-            )
+            page_limit = min(self.RELATIONSHIP_PAGE_SIZE, limit - len(results))
+            try:
+                payload = await self._request_json(
+                    "GET",
+                    f"/paper/{encoded_id}/{endpoint}",
+                    params={
+                        "fields": self._prefixed_relationship_fields(nested_key),
+                        "offset": offset,
+                        "limit": page_limit,
+                    },
+                )
+            except SourceError as exc:
+                if exc.status_code == 404:
+                    return []
+                raise
             batch = payload.get("data", [])
             if not batch:
                 break
 
             for item in batch:
                 paper = item.get(nested_key, item)
-                paper_id_value = paper.get("paperId")
-                if paper_id_value:
-                    results.append(paper_id_value)
+                if not isinstance(paper, dict):
+                    continue
+                results.append(self._paper_from_payload(paper))
 
             offset += len(batch)
             if len(batch) < page_limit:
                 break
 
         return results[:limit]
+
+    def _prefixed_relationship_fields(self, prefix: str) -> str:
+        fields = ["paperId", *self.DEFAULT_FIELDS.split(",")]
+        return ",".join(f"{prefix}.{field}" for field in fields)
 
     async def _request_json(
         self,

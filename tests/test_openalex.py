@@ -167,3 +167,63 @@ async def test_openalex_polite_pool_headers_include_mailto() -> None:
 
     assert captured_requests
     assert "mailto:research@example.com" in captured_requests[0].headers["User-Agent"]
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_openalex_get_citations_maps_papers() -> None:
+    captured_requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_requests.append(request)
+        return httpx.Response(
+            200,
+            json={"results": [SAMPLE_OPENALEX_WORK], "meta": {"next_cursor": None}},
+        )
+
+    source = OpenAlexSource()
+    respx.get("https://api.openalex.org/works").mock(side_effect=handler)
+
+    papers = await source.get_citations("https://doi.org/10.1234/example")
+    await source.close()
+
+    assert len(papers) == 1
+    assert papers[0].title == SAMPLE_OPENALEX_WORK["title"]
+    assert captured_requests[0].url.params["filter"] == "cites:https://doi.org/10.1234/example"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_openalex_get_references_batches_lookup() -> None:
+    captured_filters: list[str] = []
+    work_payload = dict(
+        SAMPLE_OPENALEX_WORK,
+        referenced_works=[
+            "https://openalex.org/W111",
+            "https://openalex.org/W222",
+        ],
+    )
+
+    respx.get("https://api.openalex.org/works/W1234567890").mock(
+        return_value=httpx.Response(200, json=work_payload)
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_filters.append(request.url.params["filter"])
+        results = [
+            dict(SAMPLE_OPENALEX_WORK, id="https://openalex.org/W111", title="Ref 1"),
+            dict(SAMPLE_OPENALEX_WORK, id="https://openalex.org/W222", title="Ref 2"),
+        ]
+        return httpx.Response(
+            200,
+            json={"results": results, "meta": {"next_cursor": None}},
+        )
+
+    respx.get("https://api.openalex.org/works").mock(side_effect=handler)
+
+    source = OpenAlexSource()
+    papers = await source.get_references("W1234567890")
+    await source.close()
+
+    assert len(papers) == 2
+    assert captured_filters == ["openalex:https://openalex.org/W111|https://openalex.org/W222"]

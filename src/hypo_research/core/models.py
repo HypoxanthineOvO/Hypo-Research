@@ -37,6 +37,8 @@ class PaperResult(BaseModel):
     sources: list[str] = Field(default_factory=list)
     verification: VerificationLevel = VerificationLevel.UNVERIFIED
     matched_queries: list[str] | None = None
+    seed_papers: list[str] | None = None
+    discovery_paths: list[str] | None = None
     relevance_score: int | None = None
     relevance_reason: str | None = None
     metadata_issues: list[MetadataIssue] | None = None
@@ -116,7 +118,7 @@ class SurveyMeta(BaseModel):
 
     query: str
     params: SearchParams
-    mode: Literal["targeted", "comprehensive"] = "targeted"
+    mode: Literal["targeted", "comprehensive", "citation_graph"] = "targeted"
     created_at: datetime = Field(default_factory=datetime.now)
     total_results: int = 0
     sources_used: list[str] = Field(default_factory=list)
@@ -131,6 +133,15 @@ class SurveyMeta(BaseModel):
     pre_filter_count: int | None = None
     post_filter_count: int | None = None
     relevance_threshold: int | None = None
+    seed_identifiers: list[str] | None = None
+    seed_resolved_count: int | None = None
+    failed_seeds: list[str] | None = None
+    total_raw_results: int | None = None
+    depth: int | None = None
+    direction: str | None = None
+    depth_stats: dict[str, int] | None = None
+    source_contributions: dict[str, int] | None = None
+    relationship_contributions: dict[str, int] | None = None
 
 
 class SearchResult(BaseModel):

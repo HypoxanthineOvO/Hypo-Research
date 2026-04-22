@@ -24,12 +24,20 @@ class BaseSource(ABC):
         """Get a single paper by its source-specific ID."""
 
     @abstractmethod
-    async def get_citations(self, paper_id: str, limit: int = 100) -> list[str]:
-        """Get IDs of papers that cite this paper."""
+    async def get_citations(
+        self,
+        paper_id: str,
+        limit: int = 100,
+    ) -> list[PaperResult]:
+        """Get papers that cite this paper."""
 
     @abstractmethod
-    async def get_references(self, paper_id: str, limit: int = 100) -> list[str]:
-        """Get IDs of papers referenced by this paper."""
+    async def get_references(
+        self,
+        paper_id: str,
+        limit: int = 100,
+    ) -> list[PaperResult]:
+        """Get papers referenced by this paper."""
 
     async def close(self) -> None:
         """Cleanup resources such as HTTP clients."""

@@ -3,14 +3,24 @@
 from __future__ import annotations
 
 import asyncio
+import ast
 import json
+from dataclasses import asdict
+from datetime import datetime
 from pathlib import Path
 
 import click
 from rich.console import Console
 from rich.table import Table
 
-from hypo_research.core.models import ExpansionTrace, QueryVariant, SearchParams, SearchResult
+from hypo_research.cite import CitationTraverser
+from hypo_research.core.models import (
+    ExpansionTrace,
+    QueryVariant,
+    SearchParams,
+    SearchResult,
+    SurveyMeta,
+)
 from hypo_research.core.sources import (
     ArxivSource,
     BaseSource,
@@ -18,9 +28,10 @@ from hypo_research.core.sources import (
     SemanticScholarSource,
     SourceError,
 )
+from hypo_research.core.verifier import Verifier
 from hypo_research.hooks import AutoBibHook, AutoReportHook, AutoVerifyHook, HookContext, HookEvent, HookManager
 from hypo_research.output.json_output import write_search_output
-from hypo_research.survey.targeted import TargetedSearch
+from hypo_research.survey.targeted import TargetedSearch, slugify_query
 
 
 def _truncate(value: str | None, limit: int) -> str:
@@ -39,6 +50,57 @@ def _normalize_queries(queries: list[str]) -> list[str]:
         if cleaned:
             normalized.append(cleaned)
     return normalized
+
+
+class OptionEatAll(click.Option):
+    """A Click option that consumes values until the next option token."""
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        kwargs.pop("nargs", None)
+        super().__init__(*args, **kwargs)
+        self.nargs = 1
+        self._previous_parser_process = None
+        self._parser = None
+
+    def add_to_parser(self, parser: click.parser.OptionParser, ctx: click.Context) -> None:
+        def parser_process(value: str, state: click.parser.ParsingState) -> None:
+            collected = [value]
+            assert self._parser is not None
+            prefixes = tuple(self._parser.prefixes)
+            while state.rargs and not state.rargs[0].startswith(prefixes):
+                collected.append(state.rargs.pop(0))
+            assert self._previous_parser_process is not None
+            self._previous_parser_process(tuple(collected), state)
+
+        retval = super().add_to_parser(parser, ctx)
+        for option_name in self.opts:
+            our_parser = parser._long_opt.get(option_name) or parser._short_opt.get(option_name)
+            if our_parser is not None:
+                self._parser = our_parser
+                self._previous_parser_process = our_parser.process
+                our_parser.process = parser_process
+                break
+        return retval
+
+
+def _normalize_seeds(raw_values: tuple[str, ...] | str) -> list[str]:
+    """Normalize --seeds values, supporting either split or comma-separated input."""
+    seeds: list[str] = []
+    values = (raw_values,) if isinstance(raw_values, str) else raw_values
+    for raw_value in values:
+        if raw_value.startswith(("(", "[")) and raw_value.endswith((")", "]")):
+            try:
+                parsed = ast.literal_eval(raw_value)
+            except (SyntaxError, ValueError):
+                parsed = None
+            if isinstance(parsed, (list, tuple)):
+                seeds.extend(_normalize_seeds(tuple(str(item) for item in parsed)))
+                continue
+        for candidate in raw_value.split(","):
+            cleaned = candidate.strip()
+            if cleaned:
+                seeds.append(cleaned)
+    return seeds
 
 
 def _load_queries_payload(
@@ -168,6 +230,56 @@ async def _run_multi_query_search(
         )
     finally:
         await searcher.close()
+
+
+async def _run_citation_traversal(
+    seeds: list[str],
+    depth: int,
+    direction: str,
+    min_citations: int,
+    year_range: tuple[int, int] | None,
+    max_papers: int,
+    s2_api_key: str | None,
+    openalex_email: str | None,
+):
+    traverser = CitationTraverser(
+        s2_source=SemanticScholarSource(api_key=s2_api_key),
+        openalex_source=OpenAlexSource(email=openalex_email),
+    )
+    try:
+        return await traverser.traverse(
+            seeds=seeds,
+            depth=depth,
+            direction=direction,
+            min_citations=min_citations,
+            year_range=year_range,
+            max_papers=max_papers,
+        )
+    finally:
+        await traverser.close()
+
+
+def _resolve_citation_output_dir(seeds: list[str], output_dir: str | None) -> Path:
+    """Resolve output directory for citation graph runs."""
+    if output_dir is not None:
+        return Path(output_dir)
+    timestamp = datetime.now().strftime("%Y-%m-%d")
+    return Path("data") / "citations" / f"{timestamp}_{slugify_query(seeds[0])}"
+
+
+def _write_graph_output(output_dir: Path, seed_papers: list, graph_edges: list) -> None:
+    """Persist traversal graph metadata alongside standard outputs."""
+    payload = {
+        "seeds": [
+            paper.model_dump(mode="json", exclude={"raw_response"})
+            for paper in seed_papers
+        ],
+        "edges": [asdict(edge) for edge in graph_edges],
+    }
+    (output_dir / "graph.json").write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
 
 
 @click.group()
@@ -387,6 +499,223 @@ def search(
 
     console.print(table)
     console.print(f"[bold]Output directory:[/bold] {result.output_dir}")
+
+
+@main.command()
+@click.option(
+    "--seeds",
+    cls=OptionEatAll,
+    required=True,
+    help="Seed papers for citation traversal. Accepts multiple values after one --seeds flag.",
+)
+@click.option(
+    "--depth",
+    type=click.IntRange(1, 2),
+    default=1,
+    show_default=True,
+    help="Citation traversal depth.",
+)
+@click.option(
+    "--direction",
+    type=click.Choice(["citations", "references", "both"]),
+    default="both",
+    show_default=True,
+    help="Which citation relationships to traverse.",
+)
+@click.option(
+    "--min-citations",
+    type=int,
+    default=0,
+    show_default=True,
+    help="Only expand depth-2 frontier papers with at least this many citations.",
+)
+@click.option("--year-start", type=int, default=None, help="Start year (inclusive)")
+@click.option("--year-end", type=int, default=None, help="End year (inclusive)")
+@click.option("--max-papers", type=int, default=2000, help="Safety cap on final deduped papers")
+@click.option("--output-dir", type=str, default=None, help="Override output directory")
+@click.option(
+    "--openalex-email",
+    envvar="OPENALEX_EMAIL",
+    default=None,
+    help="Email for OpenAlex polite pool requests.",
+)
+@click.option(
+    "--s2-api-key",
+    envvar=["SEMANTIC_SCHOLAR_API_KEY", "S2_API_KEY"],
+    default=None,
+    help="Semantic Scholar API key.",
+)
+@click.option(
+    "--no-hooks",
+    is_flag=True,
+    default=False,
+    help="Disable all hooks (no BibTeX, no report, no auto-verify).",
+)
+@click.option(
+    "--no-bib",
+    is_flag=True,
+    default=False,
+    help="Disable automatic BibTeX generation.",
+)
+@click.option(
+    "--no-report",
+    is_flag=True,
+    default=False,
+    help="Disable automatic Markdown report generation.",
+)
+@click.option(
+    "--no-auto-verify",
+    is_flag=True,
+    default=False,
+    help="Disable automatic metadata quality check.",
+)
+def cite(
+    seeds: tuple[str, ...] | str,
+    depth: int,
+    direction: str,
+    min_citations: int,
+    year_start: int | None,
+    year_end: int | None,
+    max_papers: int,
+    output_dir: str | None,
+    openalex_email: str | None,
+    s2_api_key: str | None,
+    no_hooks: bool,
+    no_bib: bool,
+    no_report: bool,
+    no_auto_verify: bool,
+) -> None:
+    """Expand a candidate pool by traversing citations and references."""
+    if (year_start is None) != (year_end is None):
+        raise click.BadParameter(
+            "--year-start and --year-end must be provided together"
+        )
+
+    normalized_seeds = _normalize_seeds(seeds)
+    if not normalized_seeds:
+        raise click.ClickException("At least one seed paper is required")
+
+    output_path = _resolve_citation_output_dir(normalized_seeds, output_dir)
+    hook_manager = _build_hook_manager(
+        no_hooks=no_hooks,
+        no_bib=no_bib,
+        no_report=no_report,
+        no_auto_verify=no_auto_verify,
+    )
+    console = Console()
+    console.print("Sources: semantic_scholar, openalex")
+
+    try:
+        traversal = asyncio.run(
+            _run_citation_traversal(
+                seeds=normalized_seeds,
+                depth=depth,
+                direction=direction,
+                min_citations=min_citations,
+                year_range=(year_start, year_end) if year_start is not None else None,
+                max_papers=max_papers,
+                s2_api_key=s2_api_key,
+                openalex_email=openalex_email,
+            )
+        )
+    except SourceError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    verifier = Verifier()
+    papers = verifier.verify(traversal.expanded_papers)
+    verified_count = sum(1 for paper in papers if paper.verification.value == "verified")
+    single_source_count = sum(
+        1 for paper in papers if paper.verification.value == "single_source"
+    )
+
+    meta = SurveyMeta(
+        query=f"citation graph traversal from {len(normalized_seeds)} seed(s)",
+        params=SearchParams(
+            query="citation graph traversal",
+            year_range=(year_start, year_end) if year_start is not None else None,
+            max_results=max_papers,
+            sort_by="citation_count",
+        ),
+        mode="citation_graph",
+        total_results=len(papers),
+        sources_used=["semantic_scholar", "openalex"],
+        output_dir=str(output_path),
+        per_source_counts=traversal.source_stats,
+        verified_count=verified_count,
+        single_source_count=single_source_count,
+        pre_filter_count=len(papers),
+        seed_identifiers=normalized_seeds,
+        seed_resolved_count=len(traversal.seed_papers),
+        failed_seeds=traversal.failed_seeds,
+        total_raw_results=traversal.total_raw,
+        depth=depth,
+        direction=direction,
+        depth_stats={str(level): count for level, count in traversal.depth_stats.items()},
+        source_contributions=traversal.source_stats,
+        relationship_contributions=traversal.relationship_stats,
+    )
+
+    hook_manager.trigger(
+        HookEvent.POST_VERIFY,
+        HookContext(
+            papers=papers,
+            meta=meta,
+            output_dir=output_path,
+            event=HookEvent.POST_VERIFY,
+            console=None,
+        ),
+    )
+    write_search_output(output_path, meta, papers)
+    _write_graph_output(output_path, traversal.seed_papers, traversal.graph_edges)
+    hook_manager.trigger(
+        HookEvent.POST_OUTPUT,
+        HookContext(
+            papers=papers,
+            meta=meta,
+            output_dir=output_path,
+            event=HookEvent.POST_OUTPUT,
+            console=None,
+        ),
+    )
+
+    display_papers = sorted(
+        papers,
+        key=lambda paper: (
+            paper.citation_count or 0,
+            paper.year or 0,
+        ),
+        reverse=True,
+    )[:20]
+    table = Table(title="Citation Expansion Results (Top 20 by citations)")
+    table.add_column("#", justify="right")
+    table.add_column("Title")
+    table.add_column("Authors")
+    table.add_column("Year", justify="right")
+    table.add_column("Venue")
+    table.add_column("Citations", justify="right")
+
+    for index, paper in enumerate(display_papers, start=1):
+        authors = ", ".join(paper.authors)
+        table.add_row(
+            str(index),
+            _truncate(paper.title, 60),
+            _truncate(authors, 30),
+            str(paper.year or "-"),
+            _truncate(paper.venue, 20),
+            str(paper.citation_count or 0),
+        )
+
+    console.print(
+        "Seeds: "
+        f"{len(traversal.seed_papers)} resolved, {len(traversal.failed_seeds)} failed | "
+        f"Raw: {traversal.total_raw} -> Deduped: {traversal.total_deduped} | "
+        f"citations={traversal.relationship_stats.get('citations', 0)} "
+        f"references={traversal.relationship_stats.get('references', 0)}"
+    )
+    if traversal.failed_seeds:
+        console.print(f"Failed seeds: {', '.join(traversal.failed_seeds)}")
+    console.print(table)
+    console.print(f"[bold]Output directory:[/bold] {output_path}")
 
 
 if __name__ == "__main__":

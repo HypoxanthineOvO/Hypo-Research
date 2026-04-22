@@ -167,6 +167,39 @@ async def test_get_paper_returns_single_record() -> None:
     assert paper.title == SAMPLE_S2_PAPER["title"]
 
 
+@pytest.mark.asyncio
+@respx.mock
+async def test_get_citations_maps_nested_papers() -> None:
+    source = SemanticScholarSource()
+    respx.get("https://api.semanticscholar.org/graph/v1/paper/abc123/citations").mock(
+        return_value=httpx.Response(
+            200,
+            json={"data": [{"citingPaper": SAMPLE_S2_PAPER}]},
+        )
+    )
+
+    papers = await source.get_citations("abc123")
+    await source.close()
+
+    assert len(papers) == 1
+    assert papers[0].title == SAMPLE_S2_PAPER["title"]
+    assert papers[0].s2_paper_id == "abc123"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_get_references_returns_empty_on_404() -> None:
+    source = SemanticScholarSource()
+    respx.get("https://api.semanticscholar.org/graph/v1/paper/missing/references").mock(
+        return_value=httpx.Response(404, json={"error": "not found"})
+    )
+
+    papers = await source.get_references("missing")
+    await source.close()
+
+    assert papers == []
+
+
 def test_s2_uses_api_key_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SEMANTIC_SCHOLAR_API_KEY", "test-key-123")
 

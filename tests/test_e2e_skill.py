@@ -9,7 +9,7 @@ import textwrap
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 import pytest
 
@@ -172,6 +172,42 @@ class TestE2ESkillFlow:
         result = _run_cli(["search", "--year-start", "2020"], skill_env)
         assert result.returncode != 0
 
+    def test_cite_command_produces_all_outputs(self, tmp_path: Path, skill_env: dict[str, str]) -> None:
+        output_dir = tmp_path / "cite"
+        result = _run_cli(
+            [
+                "cite",
+                "--seeds",
+                "DOI:10.1145/3470496.3527393",
+                "--depth",
+                "1",
+                "--direction",
+                "both",
+                "--year-start",
+                "2020",
+                "--year-end",
+                "2026",
+                "--output-dir",
+                str(output_dir),
+            ],
+            skill_env,
+        )
+
+        assert result.returncode == 0
+        assert (output_dir / "results.json").exists()
+        assert (output_dir / "meta.json").exists()
+        assert (output_dir / "references.bib").exists()
+        assert (output_dir / "results.md").exists()
+        assert (output_dir / "graph.json").exists()
+
+        meta = json.loads((output_dir / "meta.json").read_text(encoding="utf-8"))
+        results = json.loads((output_dir / "results.json").read_text(encoding="utf-8"))
+
+        assert meta["mode"] == "citation_graph"
+        assert meta["seed_resolved_count"] == 1
+        assert meta["direction"] == "both"
+        assert results
+
 
 def _run_cli(args: list[str], env: dict[str, str]) -> subprocess.CompletedProcess[str]:
     command = ["uv", "run", "hypo-research", *args]
@@ -208,11 +244,24 @@ class _FakeApiHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
         params = parse_qs(parsed.query)
+        decoded_path = unquote(parsed.path)
         if parsed.path == "/graph/v1/paper/search":
             self._json_response(_s2_response(params))
             return
+        if decoded_path.startswith("/graph/v1/paper/") and decoded_path.endswith("/citations"):
+            self._json_response(_s2_relationship_response(decoded_path, "citations"))
+            return
+        if decoded_path.startswith("/graph/v1/paper/") and decoded_path.endswith("/references"):
+            self._json_response(_s2_relationship_response(decoded_path, "references"))
+            return
+        if decoded_path.startswith("/graph/v1/paper/"):
+            self._json_response(_s2_paper_response(decoded_path))
+            return
         if parsed.path == "/works":
             self._json_response(_openalex_response(params))
+            return
+        if decoded_path.startswith("/works/"):
+            self._json_response(_openalex_work_response(decoded_path))
             return
         if parsed.path == "/api/query":
             self._text_response(_arxiv_response(params), content_type="application/atom+xml")
@@ -275,7 +324,108 @@ def _s2_response(params: dict[str, list[str]]) -> dict:
     return {"total": len(papers), "offset": 0, "next": None, "data": papers}
 
 
+def _s2_paper_response(path: str) -> dict:
+    if path == "/graph/v1/paper/DOI:10.1145/3470496.3527393":
+        return {
+            "paperId": "seed-cite",
+            "title": "CraterLake: A Hardware Accelerator for FHE",
+            "authors": [{"authorId": "10", "name": "Carol Lee"}],
+            "year": 2021,
+            "venue": "MICRO",
+            "abstract": "Seed paper for citation traversal.",
+            "externalIds": {"DOI": "10.1145/3470496.3527393"},
+            "citationCount": 88,
+            "referenceCount": 24,
+            "url": "https://www.semanticscholar.org/paper/seed-cite",
+        }
+    return {"error": "not found"}
+
+
+def _s2_relationship_response(path: str, relationship: str) -> dict:
+    if "/DOI:10.1145/3470496.3527393/" not in path:
+        return {"data": []}
+
+    if relationship == "citations":
+        return {
+            "data": [
+                {
+                    "citingPaper": {
+                        "paperId": "cite-shared",
+                        "title": "Bootstrapping Accelerator Networks",
+                        "authors": [{"authorId": "11", "name": "Dana Xu"}],
+                        "year": 2023,
+                        "venue": "ASPLOS",
+                        "abstract": "A citing paper.",
+                        "externalIds": {"DOI": "10.1145/fhe.graph.1"},
+                        "citationCount": 31,
+                        "referenceCount": 9,
+                        "url": "https://www.semanticscholar.org/paper/cite-shared",
+                    }
+                }
+            ]
+        }
+
+    return {
+        "data": [
+            {
+                "citedPaper": {
+                    "paperId": "cite-ref",
+                    "title": "NTT Dataflow for Homomorphic Encryption",
+                    "authors": [{"authorId": "12", "name": "Evan Sun"}],
+                    "year": 2022,
+                    "venue": "HPCA",
+                    "abstract": "A referenced paper.",
+                    "externalIds": {"DOI": "10.1145/fhe.graph.2"},
+                    "citationCount": 22,
+                    "referenceCount": 14,
+                    "url": "https://www.semanticscholar.org/paper/cite-ref",
+                }
+            }
+        ]
+    }
+
+
 def _openalex_response(params: dict[str, list[str]]) -> dict:
+    filter_value = params.get("filter", [""])[0]
+    if filter_value == "cites:https://doi.org/10.1145/3470496.3527393":
+        works = [
+            {
+                "id": "https://openalex.org/WCITE1",
+                "doi": "https://doi.org/10.1145/fhe.graph.1",
+                "title": "Bootstrapping Accelerator Networks",
+                "authorships": [{"author": {"display_name": "Dana Xu"}}],
+                "publication_year": 2023,
+                "primary_location": {
+                    "landing_page_url": "https://example.org/cite1",
+                    "source": {"display_name": "ASPLOS"},
+                },
+                "cited_by_count": 35,
+                "abstract_inverted_index": {"Bootstrapping": [0], "Accelerator": [1]},
+                "referenced_works": [],
+                "type": "article",
+            }
+        ]
+        return {"results": works, "meta": {"next_cursor": None}}
+    if filter_value == "openalex:https://openalex.org/WREF2":
+        works = [
+            {
+                "id": "https://openalex.org/WREF2",
+                "doi": "https://doi.org/10.1145/fhe.graph.2",
+                "title": "NTT Dataflow for Homomorphic Encryption",
+                "authorships": [{"author": {"display_name": "Evan Sun"}}],
+                "publication_year": 2022,
+                "primary_location": {
+                    "landing_page_url": "https://example.org/ref2",
+                    "source": {"display_name": "HPCA"},
+                },
+                "cited_by_count": 27,
+                "abstract_inverted_index": {"NTT": [0], "Dataflow": [1]},
+                "referenced_works": [],
+                "type": "article",
+            }
+        ]
+        return {"results": works, "meta": {"next_cursor": None}}
+
     query = params.get("search", [""])[0]
     if query == "low temperature VLSI GPU":
         works = [
@@ -314,6 +464,26 @@ def _openalex_response(params: dict[str, list[str]]) -> dict:
             }
         ]
     return {"results": works, "meta": {"next_cursor": None}}
+
+
+def _openalex_work_response(path: str) -> dict:
+    if path.startswith("/works/https://doi.org/10.1145/3470496.3527393"):
+        return {
+            "id": "https://openalex.org/WSEEDCITE",
+            "doi": "https://doi.org/10.1145/3470496.3527393",
+            "title": "CraterLake: A Hardware Accelerator for FHE",
+            "authorships": [{"author": {"display_name": "Carol Lee"}}],
+            "publication_year": 2021,
+            "primary_location": {
+                "landing_page_url": "https://example.org/seed-cite",
+                "source": {"display_name": "MICRO"},
+            },
+            "cited_by_count": 93,
+            "abstract_inverted_index": {"Seed": [0], "paper": [1]},
+            "referenced_works": ["https://openalex.org/WREF2"],
+            "type": "article",
+        }
+    return {"error": "not found"}
 
 
 def _arxiv_response(params: dict[str, list[str]]) -> str:

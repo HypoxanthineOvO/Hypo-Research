@@ -15,9 +15,14 @@ def generate_report(
 ) -> Path:
     """Generate a Markdown survey report."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    title = (
+        "# Citation Graph Expansion Report"
+        if meta.mode == "citation_graph"
+        else "# Literature Survey Report"
+    )
 
     lines: list[str] = [
-        "# Literature Survey Report",
+        title,
         "",
         "## Search Summary",
         "",
@@ -25,7 +30,7 @@ def generate_report(
         f"- **Date**: {_format_date(meta.created_at)}",
         f"- **Sources**: {_format_sources(meta.sources_used)}",
         f"- **Results**: {len(papers)} papers ({meta.verified_count or 0} verified, {meta.single_source_count or 0} single-source)",
-        f"- **Query Expansion**: {_format_expansion(meta)}",
+        *_render_mode_specific_summary(meta),
         "",
         "## Results by Verification Status",
         "",
@@ -117,9 +122,34 @@ def _render_statistics(meta: SurveyMeta, papers: list[PaperResult]) -> list[str]
         "| Source | Papers |",
         "|--------|--------|",
     ]
-    for source_name, count in (meta.per_source_counts or {}).items():
+    source_counts = meta.source_contributions or meta.per_source_counts or {}
+    for source_name, count in source_counts.items():
         lines.append(f"| {_pretty_source_name(source_name)} | {count} |")
     lines.append(f"| **After dedup** | **{len(papers)}** |")
+    if meta.depth_stats:
+        lines.extend(
+            [
+                "",
+                "### Depth Breakdown",
+                "",
+                "| Depth | Papers |",
+                "|-------|--------|",
+            ]
+        )
+        for depth, count in meta.depth_stats.items():
+            lines.append(f"| {depth} | {count} |")
+    if meta.relationship_contributions:
+        lines.extend(
+            [
+                "",
+                "### Relationship Breakdown",
+                "",
+                "| Relationship | Papers |",
+                "|--------------|--------|",
+            ]
+        )
+        for relationship, count in meta.relationship_contributions.items():
+            lines.append(f"| {relationship} | {count} |")
     lines.append("")
     return lines
 
@@ -151,3 +181,19 @@ def _pretty_source_name(source: str) -> str:
         "arxiv": "arXiv",
     }
     return mapping.get(source, source)
+
+
+def _render_mode_specific_summary(meta: SurveyMeta) -> list[str]:
+    if meta.mode != "citation_graph":
+        return [f"- **Query Expansion**: {_format_expansion(meta)}"]
+
+    seed_summary = ", ".join(meta.seed_identifiers or []) or "N/A"
+    failed_seeds = ", ".join(meta.failed_seeds or []) or "None"
+    return [
+        "- **Mode**: Citation graph traversal",
+        f"- **Seeds**: {seed_summary}",
+        f"- **Traversal Settings**: depth={meta.depth or 1}, direction={meta.direction or 'both'}",
+        f"- **Seed Resolution**: {meta.seed_resolved_count or 0} resolved, {len(meta.failed_seeds or [])} failed",
+        f"- **Failed Seeds**: {failed_seeds}",
+        f"- **Traversal Raw Results**: {meta.total_raw_results or len(meta.per_source_counts or {})}",
+    ]

@@ -137,3 +137,33 @@ def test_generate_report_includes_metadata_quality_summary(tmp_path: Path) -> No
     assert "Warnings: 1" in content
     assert "Errors: 1" in content
     assert "Problematic Paper: error on `authors`" in content
+
+
+def test_generate_report_for_citation_graph_mode(tmp_path: Path) -> None:
+    output_path = tmp_path / "results.md"
+    meta = make_meta().model_copy(
+        update={
+            "mode": "citation_graph",
+            "seed_identifiers": ["Cinnamon", "CraterLake"],
+            "seed_resolved_count": 2,
+            "failed_seeds": ["Unknown Seed"],
+            "total_raw_results": 12,
+            "depth": 1,
+            "direction": "both",
+            "depth_stats": {"1": 5},
+            "relationship_contributions": {"citations": 7, "references": 5},
+            "source_contributions": {"semantic_scholar": 7, "openalex": 5},
+        }
+    )
+
+    generate_report(
+        [make_paper(title="Verified Paper", verification=VerificationLevel.VERIFIED)],
+        meta,
+        output_path,
+    )
+
+    content = output_path.read_text(encoding="utf-8")
+    assert "# Citation Graph Expansion Report" in content
+    assert "Mode**: Citation graph traversal" in content
+    assert "Seeds**: Cinnamon, CraterLake" in content
+    assert "| citations | 7 |" in content
