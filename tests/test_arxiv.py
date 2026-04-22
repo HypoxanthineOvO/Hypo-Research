@@ -85,7 +85,7 @@ COMBINED_ARXIV_FEED = """<?xml version="1.0" encoding="UTF-8"?>
 @respx.mock
 async def test_arxiv_search_maps_fields() -> None:
     source = ArxivSource()
-    respx.get("http://export.arxiv.org/api/query").mock(
+    respx.get("https://export.arxiv.org/api/query").mock(
         return_value=httpx.Response(200, text=SAMPLE_ARXIV_FEED)
     )
 
@@ -109,7 +109,7 @@ async def test_arxiv_search_maps_fields() -> None:
 @respx.mock
 async def test_arxiv_title_cleanup() -> None:
     source = ArxivSource()
-    respx.get("http://export.arxiv.org/api/query").mock(
+    respx.get("https://export.arxiv.org/api/query").mock(
         return_value=httpx.Response(200, text=SAMPLE_ARXIV_FEED)
     )
 
@@ -123,7 +123,7 @@ async def test_arxiv_title_cleanup() -> None:
 @respx.mock
 async def test_arxiv_client_side_year_filter() -> None:
     source = ArxivSource()
-    respx.get("http://export.arxiv.org/api/query").mock(
+    respx.get("https://export.arxiv.org/api/query").mock(
         return_value=httpx.Response(200, text=COMBINED_ARXIV_FEED)
     )
 
@@ -140,7 +140,7 @@ async def test_arxiv_client_side_year_filter() -> None:
 @respx.mock
 async def test_arxiv_id_extraction() -> None:
     source = ArxivSource()
-    respx.get("http://export.arxiv.org/api/query").mock(
+    respx.get("https://export.arxiv.org/api/query").mock(
         return_value=httpx.Response(200, text=SAMPLE_ARXIV_FEED)
     )
 
@@ -167,7 +167,7 @@ async def test_arxiv_get_citations_and_references_return_empty() -> None:
 @respx.mock
 async def test_arxiv_handles_empty_response() -> None:
     source = ArxivSource()
-    respx.get("http://export.arxiv.org/api/query").mock(
+    respx.get("https://export.arxiv.org/api/query").mock(
         return_value=httpx.Response(200, text="")
     )
 
@@ -181,7 +181,7 @@ async def test_arxiv_handles_empty_response() -> None:
 @respx.mock
 async def test_arxiv_handles_invalid_xml() -> None:
     source = ArxivSource()
-    respx.get("http://export.arxiv.org/api/query").mock(
+    respx.get("https://export.arxiv.org/api/query").mock(
         return_value=httpx.Response(200, text="<html><body>Service error</body></html")
     )
 
@@ -202,10 +202,43 @@ async def test_arxiv_handles_503_status() -> None:
         call_count += 1
         return httpx.Response(503, text="Service Unavailable")
 
-    respx.get("http://export.arxiv.org/api/query").mock(side_effect=handler)
+    respx.get("https://export.arxiv.org/api/query").mock(side_effect=handler)
 
     papers = await source.search(SearchParams(query="cryogenic"))
     await source.close()
 
     assert papers == []
     assert call_count == source.MAX_RETRIES + 1
+
+
+def test_arxiv_query_building() -> None:
+    adapter = ArxivSource()
+    params = SearchParams(query="placeholder")
+
+    simple_query = adapter._build_arxiv_query("homomorphic encryption", params)
+    assert 'all:"homomorphic encryption"' == simple_query
+
+    multi_query = adapter._build_arxiv_query("FHE hardware accelerator", params)
+    assert "all:" in multi_query
+    assert "AND" in multi_query
+
+    passthrough_query = adapter._build_arxiv_query('ti:"FHE" AND abs:"FPGA"', params)
+    assert passthrough_query == 'ti:"FHE" AND abs:"FPGA"'
+    import asyncio
+    asyncio.run(adapter.close())
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_arxiv_returns_results_for_known_topic() -> None:
+    adapter = ArxivSource()
+    respx.get("https://export.arxiv.org/api/query").mock(
+        return_value=httpx.Response(200, text=SAMPLE_ARXIV_FEED)
+    )
+
+    results = await adapter.search(
+        SearchParams(query="fully homomorphic encryption accelerator", max_results=10)
+    )
+    await adapter.close()
+
+    assert len(results) > 0

@@ -31,7 +31,7 @@ class ArxivSource(BaseSource):
     """arXiv adapter."""
 
     SOURCE_NAME = "arxiv"
-    BASE_URL = "http://export.arxiv.org/api/query"
+    BASE_URL = "https://export.arxiv.org/api/query"
     PAGE_SIZE = 50
     MAX_RETRIES = 2
 
@@ -39,7 +39,10 @@ class ArxivSource(BaseSource):
         self,
         rate_limiter: RateLimiter | None = None,
     ):
-        self._client = httpx.AsyncClient(timeout=30.0)
+        self._client = httpx.AsyncClient(
+            timeout=httpx.Timeout(60.0, connect=20.0),
+            follow_redirects=True,
+        )
         self._limiter = rate_limiter or RateLimiter(
             max_tokens=1,
             refill_period=3.0,
@@ -60,12 +63,13 @@ class ArxivSource(BaseSource):
         """Search arXiv Atom feed."""
         papers: list[PaperResult] = []
         start = 0
+        arxiv_query = self._build_arxiv_query(params.query, params)
 
         while len(papers) < params.max_results:
             page_size = min(self.PAGE_SIZE, params.max_results - len(papers))
             payload = await self._request_feed(
                 {
-                    "search_query": f"all:{params.query}",
+                    "search_query": arxiv_query,
                     "start": str(start),
                     "max_results": str(page_size),
                     "sortBy": self._sort_by(params),
@@ -123,7 +127,25 @@ class ArxivSource(BaseSource):
                 try:
                     response = await self._client.get(self.BASE_URL, params=params)
                 except httpx.RequestError as exc:
-                    raise SourceError(self.name, f"request failed: {exc}") from exc
+                    if retries < self.MAX_RETRIES:
+                        retries += 1
+                        retry_after = min(1.0 * retries, 3.0)
+                        logger.warning(
+                            "[%s] request error %s, retrying in %.2fs (%s/%s)",
+                            self.name,
+                            exc,
+                            retry_after,
+                            retries,
+                            self.MAX_RETRIES,
+                        )
+                        await asyncio.sleep(retry_after)
+                        continue
+                    logger.warning(
+                        "[%s] request failed after retries: %s; returning empty result set",
+                        self.name,
+                        exc,
+                    )
+                    return {"entries": []}
 
             if response.status_code == 200:
                 body = response.text
@@ -287,6 +309,31 @@ class ArxivSource(BaseSource):
         if params.sort_by == "year":
             return "submittedDate"
         return "relevance"
+
+    def _build_arxiv_query(self, query: str, params: SearchParams) -> str:
+        """Convert a natural-language query into arXiv API query syntax."""
+        if any(prefix in query for prefix in ["ti:", "abs:", "all:", "au:", "cat:"]):
+            return query
+
+        terms = self._extract_search_terms(query)
+        if len(terms) == 1:
+            return f'all:"{terms[0]}"'
+
+        parts = [f'all:"{term}"' for term in terms]
+        return " AND ".join(parts)
+
+    def _extract_search_terms(self, query: str) -> list[str]:
+        """Extract quoted phrases and keyword groups from a query string."""
+        quoted_terms = re.findall(r'"([^"]+)"', query)
+        remainder = re.sub(r'"[^"]+"', " ", query)
+        bare_terms = [term for term in re.findall(r"[A-Za-z0-9][A-Za-z0-9\-\+\.]*", remainder) if term]
+
+        if quoted_terms:
+            return quoted_terms + bare_terms
+        if len(bare_terms) <= 2:
+            combined = " ".join(bare_terms).strip()
+            return [combined] if combined else [query.strip()]
+        return bare_terms
 
     @staticmethod
     def _clean_text(value: str) -> str:
