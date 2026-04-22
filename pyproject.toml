@@ -1,6 +1,6 @@
 [project]
 name = "hypo-research"
-version = "0.1.0"
+version = "0.1.1"
 description = "Academic research assistant skill pack"
 requires-python = ">=3.11"
 dependencies = [
@@ -11,10 +11,11 @@ dependencies = [
     "feedparser>=6.0",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
+    "pytest-mock>=3.14",
     "respx>=0.21",
 ]
 

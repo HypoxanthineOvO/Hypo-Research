@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import subprocess
-import sys
 import textwrap
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -176,11 +174,7 @@ class TestE2ESkillFlow:
 
 
 def _run_cli(args: list[str], env: dict[str, str]) -> subprocess.CompletedProcess[str]:
-    executable = shutil.which("hypo-research")
-    if executable:
-        command = [executable, *args]
-    else:
-        command = [sys.executable, "-m", "hypo_research.cli", *args]
+    command = ["uv", "run", "hypo-research", *args]
     return subprocess.run(
         command,
         cwd=Path.cwd(),
@@ -323,8 +317,8 @@ def _openalex_response(params: dict[str, list[str]]) -> dict:
 
 
 def _arxiv_response(params: dict[str, list[str]]) -> str:
-    query = params.get("search_query", [""])[0].removeprefix("all:")
-    if query == "low temperature VLSI GPU":
+    query = params.get("search_query", [""])[0].lower()
+    if "low" in query and "temperature" in query and "vlsi" in query:
         return """<?xml version='1.0' encoding='UTF-8'?>
 <feed xmlns='http://www.w3.org/2005/Atom' xmlns:arxiv='http://arxiv.org/schemas/atom'>
   <entry>
