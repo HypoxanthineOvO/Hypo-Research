@@ -1,0 +1,63 @@
+\documentclass{article}
+\usepackage{cleveref}
+\usepackage{tabularray}
+\usepackage{graphicx}
+\usepackage{amsmath}
+
+\begin{document}
+
+% === L10: 标题未 Title Case ===
+\section{research background and motivation}
+\label{background}
+
+% === L09: 缩写首次出现未展开 ===
+FHE is a powerful cryptographic technique.
+NTT is the key computation kernel.
+
+% === L01: 用了 \ref 而不是 \cref ===
+As shown in Figure \ref{fig:overview},
+the architecture is illustrated.
+
+% === L02/L03: 缺 ~ 非断行空格 ===
+See Table \cref{tab:results} for details.
+As discussed in \cite{cinnamon2025}.
+
+% === L04/L05/L06: 浮动体综合问题 ===
+\begin{figure}
+\centering
+\label{overview}
+\caption{System Overview}
+\end{figure}
+
+% === L07: 用了 tabular 而不是 tblr ===
+\begin{table}[htbp]
+\caption{Performance Comparison}
+\label{tab:results}
+\begin{tabular}{lcc}
+\hline
+Method & Speedup & Area \\
+\hline
+Ours & 3.2x & 1.5mm2 \\
+\hline
+\end{tabular}
+\end{table}
+
+% === L08: 未引用的 label ===
+\begin{equation}
+E = mc^2
+\label{eq:unused}
+\end{equation}
+
+% === L10: 另一个标题 ===
+\subsection{our proposed method}
+
+% === L11: 缩写后句间距 ===
+In Fig. 1, we show the results.
+Et al. proposed a method.
+
+% === L13: 连续多空格 ===
+This is  a  test  sentence.
+Another sentence with trailing spaces.    
+
+\bibliography{lint_buggy}
+\end{document}

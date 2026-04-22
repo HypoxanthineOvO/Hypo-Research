@@ -7,6 +7,7 @@
 - **三源并行检索**：Semantic Scholar + OpenAlex + arXiv 同时搜索
 - **自动去重 & 交叉验证**：DOI / 标题+作者 双重匹配，标记 verified / single-source / suspicious
 - **筛选分类引擎**：按自定义规则对候选池分类，输出结构化分析报告
+- **LaTeX 结构检查**：静态提取 label / ref / float / BibTeX 统计，支持结构 lint 和自动修复
 - **结构化输出**：Markdown 报告 + BibTeX 引用 + JSON 元数据
 - **Skill 驱动**：通过 `/hypo-survey` 等命令直接调用，Agent 自动完成全流程
 
@@ -146,6 +147,33 @@ Agent 会逐篇标注类别，输出：
 
 ---
 
+### `/hypo-lint` — LaTeX 结构检查
+
+检查 LaTeX 论文的结构规范性，输出问题报告并支持自动修复。
+
+| 参数 | 必填 | 说明 | 示例 |
+|------|------|------|------|
+| `path` | ✅ | LaTeX 项目路径 | `"docs/"` |
+| `bib` |  | `.bib` 文件路径 | `"refs.bib"` |
+| `rules` |  | 只检查指定规则 | `"L01,L04,L07"` |
+| `fix` |  | 自动修复 | `true` |
+
+**检查规则（13 条）：**
+- L01-L03: `\cref` / `\cite` 规范（禁用 `\ref`，必须有 `~`）
+- L04-L06: 浮动体规范（placement、label 顺序、label 前缀）
+- L07: 表格环境（禁用 `tabular`，用 `tblr`）
+- L08: 孤立 label / ref 检测
+- L09-L10: 缩写展开 + 标题 Title Case（Agent 辅助判断）
+- L11-L13: 间距和空格规范
+
+**示例：**
+
+```text
+/hypo-lint path="docs/" fix=true
+```
+
+---
+
 ### 推荐工作流
 
 ```text
@@ -170,6 +198,9 @@ D: CIM/PIM + FHE
 
 # Step 5：合并补充结果，重新筛选
 /hypo-screen path="data/surveys/2026-04-22_fhe_hw/" rules="..."
+
+# 写作检查流程
+/hypo-lint path="docs/" fix=true
 ```
 
 ---

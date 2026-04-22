@@ -32,6 +32,7 @@ from hypo_research.core.verifier import Verifier
 from hypo_research.hooks import AutoBibHook, AutoReportHook, AutoVerifyHook, HookContext, HookEvent, HookManager
 from hypo_research.output.json_output import write_search_output
 from hypo_research.survey.targeted import TargetedSearch, slugify_query
+from hypo_research.writing.stats import TexStats, extract_stats
 
 
 def _truncate(value: str | None, limit: int) -> str:
@@ -101,6 +102,33 @@ def _normalize_seeds(raw_values: tuple[str, ...] | str) -> list[str]:
             if cleaned:
                 seeds.append(cleaned)
     return seeds
+
+
+def _parse_rules_option(raw_value: str | None) -> set[str] | None:
+    """Parse a comma-separated lint rule filter."""
+    if raw_value is None:
+        return None
+    rules = {
+        candidate.strip().upper()
+        for candidate in raw_value.split(",")
+        if candidate.strip()
+    }
+    return rules or None
+
+
+def _format_lint_issue(issue: object) -> str:
+    """Render a human-readable lint issue line."""
+    rule = getattr(issue, "rule")
+    severity = str(getattr(issue, "severity")).upper()
+    file = getattr(issue, "file")
+    line = getattr(issue, "line")
+    message = getattr(issue, "message")
+    return f"[{rule}] {severity} {file}:{line}  {message}"
+
+
+def _lint_exit_code(stats: TexStats, rules: set[str] | None) -> int:
+    """Return lint exit code based on filtered error severity."""
+    return 1 if any(issue.severity == "error" for issue in stats.filtered_issues(rules)) else 0
 
 
 def _load_queries_payload(
@@ -716,6 +744,61 @@ def cite(
         console.print(f"Failed seeds: {', '.join(traversal.failed_seeds)}")
     console.print(table)
     console.print(f"[bold]Output directory:[/bold] {output_path}")
+
+
+@main.command()
+@click.option(
+    "--stats",
+    "stats_mode",
+    is_flag=True,
+    default=False,
+    help="Print complete lint statistics JSON to stdout.",
+)
+@click.option(
+    "--rules",
+    type=str,
+    default=None,
+    help="Comma-separated lint rule filter, e.g. L01,L04,L07.",
+)
+@click.option(
+    "--bib",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Explicit .bib file path. If omitted, infer from \\bibliography{}.",
+)
+@click.argument(
+    "path",
+    type=click.Path(exists=True, path_type=Path),
+)
+def lint(
+    stats_mode: bool,
+    rules: str | None,
+    bib: Path | None,
+    path: Path,
+) -> None:
+    """Extract and report LaTeX structure lint issues."""
+    selected_rules = _parse_rules_option(rules)
+    stats = extract_stats(
+        path.as_posix(),
+        bib_paths=[bib.as_posix()] if bib is not None else None,
+    )
+
+    if stats_mode:
+        click.echo(stats.to_json(selected_rules), nl=False)
+        raise click.exceptions.Exit(_lint_exit_code(stats, selected_rules))
+
+    issues = stats.filtered_issues(selected_rules)
+    if issues:
+        for issue in issues:
+            click.echo(_format_lint_issue(issue))
+    else:
+        click.echo("No issues found.")
+
+    summary = stats.summary(selected_rules)
+    click.echo(
+        f"Summary: {summary['errors']} errors, {summary['warnings']} warnings, {summary['info']} info"
+    )
+    raise click.exceptions.Exit(_lint_exit_code(stats, selected_rules))
 
 
 if __name__ == "__main__":

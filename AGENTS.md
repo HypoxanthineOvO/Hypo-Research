@@ -24,6 +24,7 @@
 - `hypo-cite` — 从种子论文沿引用 / 被引关系扩展候选池
 - `hypo-search` — 快速单次检索（点查 / 补充）
 - `hypo-screen` — 按自定义规则筛选、分类、生成分析报告
+- `hypo-lint` — 检查 LaTeX 结构规范，输出问题并辅助自动修复
 
 调用方式：
 - Claude Code：`/hypo-survey` 或 `$hypo-survey`
@@ -50,6 +51,7 @@
 - 从已知核心论文出发扩展相关工作 / 引文网络
 - 按规则筛选 / 分类已有调研结果
 - 检查某个候选池是否漏掉关键论文
+- 检查 LaTeX 论文的 label / ref / float / BibTeX 结构问题
 
 ## 快速使用
 
@@ -126,6 +128,7 @@ export SEMANTIC_SCHOLAR_API_KEY="your-key-here"
 ```text
 src/hypo_research/
 ├── core/models.py, rate_limiter.py, dedup.py, verifier.py
+├── writing/{stats.py, bib_parser.py}
 ├── core/sources/{base.py, semantic_scholar.py, openalex.py, arxiv.py}
 ├── hooks/{base.py, auto_verify.py, auto_bib.py, auto_report.py}
 ├── survey/targeted.py
