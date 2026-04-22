@@ -35,6 +35,9 @@ class PaperResult(BaseModel):
     source_api: str
     sources: list[str] = Field(default_factory=list)
     verification: VerificationLevel = VerificationLevel.UNVERIFIED
+    matched_queries: list[str] | None = None
+    relevance_score: int | None = None
+    relevance_reason: str | None = None
     raw_response: dict = Field(default_factory=dict, repr=False)
 
 
@@ -82,6 +85,22 @@ class SearchParams(BaseModel):
         return cleaned or None
 
 
+class QueryVariant(BaseModel):
+    """A single expanded query variant, filled by the agent."""
+
+    query: str
+    strategy: str
+    rationale: str
+
+
+class ExpansionTrace(BaseModel):
+    """Records how the original query was expanded."""
+
+    original_query: str
+    variants: list[QueryVariant]
+    all_queries: list[str]
+
+
 class SurveyMeta(BaseModel):
     """Metadata saved alongside a survey run."""
 
@@ -92,6 +111,10 @@ class SurveyMeta(BaseModel):
     total_results: int = 0
     sources_used: list[str] = Field(default_factory=list)
     output_dir: str = ""
+    expansion: ExpansionTrace | None = None
+    pre_filter_count: int | None = None
+    post_filter_count: int | None = None
+    relevance_threshold: int | None = None
 
 
 class SearchResult(BaseModel):
