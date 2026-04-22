@@ -21,6 +21,7 @@ uv sync
 | `/hypo-screen` | 文献筛选分类 | 按自定义规则收敛、分类、出分析报告 |
 | `/hypo-search` | 快速文献检索 | 单次点查、补检、精确查找 |
 | `/hypo-lint` | LaTeX 结构检查 | 检查 label / ref / float / BibTeX 结构问题并辅助修复 |
+| `/hypo-verify` | 引用验证 | 联网验证 `.bib` 引用是否真实存在并检查元数据错误 |
 
 ## 在 Claude Code 中使用
 
@@ -29,6 +30,7 @@ uv sync
 - `/hypo-screen path="data/surveys/2026-04-22_cryo_gpu/" rules="A: cryo-CMOS; B: superconducting control"`
 - `/hypo-search query="TFHE bootstrapping accelerator"`
 - `/hypo-lint path="docs/" fix=true`
+- `/hypo-verify bib="refs.bib" tex="docs/"`
 
 ## 在 Codex CLI 中使用
 
@@ -39,6 +41,7 @@ uv sync
 - `/hypo-screen` 或 `/prompts:hypo-screen`
 - `/hypo-search` 或 `/prompts:hypo-search`
 - `/hypo-lint` 或 `/prompts:hypo-lint`
+- `/hypo-verify` 或 `/prompts:hypo-verify`
 
 也可以直接用自然语言描述需求，让 Agent 结合 `AGENTS.md` 自动路由。
 
@@ -50,6 +53,7 @@ uv sync
 4. 用 `/hypo-search` 对薄弱方向做补充点查。
 5. 重新筛选，输出最终分类报告和 BibTeX。
 6. 写作阶段用 `/hypo-lint` 对 LaTeX 结构做静态检查和规范化修复。
+7. 定稿前用 `/hypo-verify` 联网检查 `.bib` 是否混入幻觉论文或错误年份/DOI。
 
 ## 输出文件
 

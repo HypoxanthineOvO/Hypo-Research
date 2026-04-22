@@ -32,4 +32,7 @@ packages = ["src/hypo_research"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-markers = ["e2e: end-to-end integration tests"]
+markers = [
+    "e2e: end-to-end integration tests",
+    "network: tests that require live network access",
+]

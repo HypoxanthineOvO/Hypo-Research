@@ -32,7 +32,9 @@ from hypo_research.core.verifier import Verifier
 from hypo_research.hooks import AutoBibHook, AutoReportHook, AutoVerifyHook, HookContext, HookEvent, HookManager
 from hypo_research.output.json_output import write_search_output
 from hypo_research.survey.targeted import TargetedSearch, slugify_query
+from hypo_research.writing.bib_parser import parse_bib
 from hypo_research.writing.stats import TexStats, extract_stats
+from hypo_research.writing.verify import VerifyReport, verify_bib
 
 
 def _truncate(value: str | None, limit: int) -> str:
@@ -129,6 +131,38 @@ def _format_lint_issue(issue: object) -> str:
 def _lint_exit_code(stats: TexStats, rules: set[str] | None) -> int:
     """Return lint exit code based on filtered error severity."""
     return 1 if any(issue.severity == "error" for issue in stats.filtered_issues(rules)) else 0
+
+
+def _parse_keys_option(raw_value: str | None) -> list[str] | None:
+    """Parse a comma-separated cite-key filter."""
+    if raw_value is None:
+        return None
+    keys = [candidate.strip() for candidate in raw_value.split(",") if candidate.strip()]
+    return keys or None
+
+
+def _verify_exit_code(report: VerifyReport) -> int:
+    """Return verify exit code based on high-severity verification outcomes."""
+    return 1 if report.not_found > 0 or report.error > 0 else 0
+
+
+def _estimate_verify_total(
+    bib_path: Path,
+    tex_path: Path | None,
+    keys: list[str] | None,
+) -> int:
+    """Estimate how many entries will be verified for progress reporting."""
+    entries = parse_bib(bib_path.as_posix())
+    selected_keys = {key for key in keys or []} if keys else None
+    if tex_path is not None:
+        cited_keys = {citation.key for citation in extract_stats(tex_path.as_posix()).citations}
+        selected_keys = cited_keys if selected_keys is None else selected_keys & cited_keys
+
+    filtered = entries
+    if selected_keys is not None:
+        filtered = [entry for entry in filtered if entry.key in selected_keys]
+    filtered = [entry for entry in filtered if entry.fields.get("title") or entry.fields.get("doi")]
+    return len(filtered)
 
 
 def _load_queries_payload(
@@ -799,6 +833,88 @@ def lint(
         f"Summary: {summary['errors']} errors, {summary['warnings']} warnings, {summary['info']} info"
     )
     raise click.exceptions.Exit(_lint_exit_code(stats, selected_rules))
+
+
+@main.command()
+@click.option(
+    "--stats",
+    "stats_mode",
+    is_flag=True,
+    default=False,
+    help="Print complete verification JSON to stdout.",
+)
+@click.option(
+    "--tex",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help="Optional .tex file or directory. Only verify cited keys from this path.",
+)
+@click.option(
+    "--output",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Optional output file path.",
+)
+@click.option(
+    "--keys",
+    type=str,
+    default=None,
+    help="Comma-separated cite keys to verify, e.g. cinnamon2025,f1wrong.",
+)
+@click.argument(
+    "bib",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+)
+def verify(
+    stats_mode: bool,
+    tex: Path | None,
+    output: Path | None,
+    keys: str | None,
+    bib: Path,
+) -> None:
+    """Verify citation metadata in a BibTeX file."""
+    selected_keys = _parse_keys_option(keys)
+    total_to_verify = _estimate_verify_total(bib, tex, selected_keys)
+    progress_state = {"count": 0}
+
+    def progress_callback(result: object) -> None:
+        progress_state["count"] += 1
+        source = getattr(result, "remote_source", None) or "—"
+        status = getattr(result, "status")
+        if status == "verified":
+            suffix = f"verified ({source})"
+            icon = "✅"
+        elif status == "mismatch":
+            mismatches = getattr(result, "mismatches", [])
+            suffix = f"mismatch ({mismatches[0]})" if mismatches else "mismatch"
+            icon = "⚠️"
+        elif status == "not_found":
+            suffix = "not found"
+            icon = "❌"
+        else:
+            suffix = getattr(result, "notes", None) or "error"
+            icon = "💥"
+        click.echo(
+            f"  [{progress_state['count']}/{total_to_verify}] {getattr(result, 'bib_key')} {icon} {suffix}",
+            err=True,
+        )
+
+    click.echo(f"Verifying {total_to_verify} entries...", err=True)
+    report = asyncio.run(
+        verify_bib(
+            bib.as_posix(),
+            tex_path=tex.as_posix() if tex is not None else None,
+            keys=selected_keys,
+            progress_callback=progress_callback,
+        )
+    )
+
+    rendered = report.to_json() if stats_mode else report.to_markdown()
+    if output is not None:
+        output.write_text(rendered, encoding="utf-8")
+    else:
+        click.echo(rendered, nl=False)
+    raise click.exceptions.Exit(_verify_exit_code(report))
 
 
 if __name__ == "__main__":

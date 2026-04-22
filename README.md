@@ -174,6 +174,31 @@ Agent 会逐篇标注类别，输出：
 
 ---
 
+### `/hypo-verify` — 引用验证
+
+验证 `.bib` 文件中引用的论文是否真实存在，检测幻觉论文和元数据错误。
+
+| 参数 | 必填 | 说明 | 示例 |
+|------|------|------|------|
+| `bib` | ✅ | `.bib` 文件路径 | `"refs.bib"` |
+| `tex` |  | `.tex` 文件/目录（只验证被引用的） | `"docs/"` |
+| `keys` |  | 只验证指定 cite key | `"cinnamon2025,f1wrong"` |
+| `fix` |  | 自动修复可修复项 | `true` |
+
+**检查内容：**
+- 论文是否存在于 Semantic Scholar / OpenAlex
+- 标题、年份、venue、作者是否匹配
+- 检测 LLM 生成的幻觉论文
+- 检测元数据错误（年份、DOI 等）
+
+**示例：**
+
+```text
+/hypo-verify bib="refs.bib" tex="docs/" fix=true
+```
+
+---
+
 ### 推荐工作流
 
 ```text
@@ -201,6 +226,7 @@ D: CIM/PIM + FHE
 
 # 写作检查流程
 /hypo-lint path="docs/" fix=true
+/hypo-verify bib="refs.bib" tex="docs/"
 ```
 
 ---

@@ -25,6 +25,7 @@
 - `hypo-search` — 快速单次检索（点查 / 补充）
 - `hypo-screen` — 按自定义规则筛选、分类、生成分析报告
 - `hypo-lint` — 检查 LaTeX 结构规范，输出问题并辅助自动修复
+- `hypo-verify` — 联网验证 `.bib` 引用是否真实存在并检查元数据错误
 
 调用方式：
 - Claude Code：`/hypo-survey` 或 `$hypo-survey`
@@ -52,6 +53,7 @@
 - 按规则筛选 / 分类已有调研结果
 - 检查某个候选池是否漏掉关键论文
 - 检查 LaTeX 论文的 label / ref / float / BibTeX 结构问题
+- 检查 `.bib` 中是否存在幻觉论文或错误元数据
 
 ## 快速使用
 
@@ -128,7 +130,7 @@ export SEMANTIC_SCHOLAR_API_KEY="your-key-here"
 ```text
 src/hypo_research/
 ├── core/models.py, rate_limiter.py, dedup.py, verifier.py
-├── writing/{stats.py, bib_parser.py}
+├── writing/{stats.py, bib_parser.py, verify.py}
 ├── core/sources/{base.py, semantic_scholar.py, openalex.py, arxiv.py}
 ├── hooks/{base.py, auto_verify.py, auto_bib.py, auto_report.py}
 ├── survey/targeted.py

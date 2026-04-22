@@ -1,0 +1,16 @@
+{
+  "summary": {
+    "total": 4,
+    "verified": 2,
+    "mismatch": 1,
+    "not_found": 1,
+    "error": 0,
+    "skipped": 0
+  },
+  "statuses": {
+    "cinnamon2025": "verified",
+    "craterlake2022": "verified",
+    "f1wrong": "mismatch",
+    "fakepaper2024": "not_found"
+  }
+}
