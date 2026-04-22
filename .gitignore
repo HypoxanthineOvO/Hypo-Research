@@ -1,10 +1,13 @@
-data/surveys/
+data/
 !data/.gitkeep
 __pycache__/
 *.pyc
 .pytest_cache/
 dist/
+build/
 *.egg-info/
 .venv/
+.env
 .claude/skills/
 .codex
+scripts/

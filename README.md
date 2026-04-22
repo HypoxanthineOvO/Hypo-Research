@@ -1,5 +1,7 @@
 # Hypo-Research
 
+Academic literature survey toolkit with multi-source search, deduplication, verification, and automated outputs.
+
 学术文献调研工具，支持多源并行检索、跨源去重、交叉验证和自动化输出。
 
 ## 功能特性
@@ -20,7 +22,7 @@
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
-git clone git@gitlab.vsplab.cn:heyx/hypo-research.git
+git clone git@github.com:HypoxanthineOvO/Hypo-Research.git
 cd Hypo-Research
 uv sync
 ```
@@ -103,7 +105,7 @@ Hypo-Research 可以作为 Claude Code / Codex 的 Skill 自动调用：
 - Claude Code：运行 `./install-skills.sh` 后，使用 `/survey`、`/quick-search`、`/review-results`
 - Codex：运行 `./install-skills.sh` 后，通过 `/prompts:survey` 或自然语言描述调研需求，由 `AGENTS.md` 自动调度
 
-详见 [docs/skill-usage-guide.md](/home/heyx/Hypo-Research/docs/skill-usage-guide.md)。
+详见 [docs/skill-usage-guide.md](docs/skill-usage-guide.md)。
 
 ## 开发
 
@@ -117,4 +119,4 @@ uv run pytest -m "not e2e" -v
 
 ## License
 
-MIT
+MIT. See [LICENSE](LICENSE).
