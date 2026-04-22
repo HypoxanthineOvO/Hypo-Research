@@ -4,6 +4,32 @@
 
 详细工作流见 [targeted_search.md](/home/heyx/Hypo-Research/src/hypo_research/prompts/targeted_search.md)。
 
+## 环境管理规范
+
+**本项目强制使用 uv 管理依赖和虚拟环境，严禁使用 pip / virtualenv / conda。**
+
+- 安装依赖：`uv add <package>`
+- 运行命令：`uv run <command>`
+- 同步环境：`uv sync`
+- 运行测试：`uv run pytest`
+
+如果你看到代码或文档里有旧的 pip 安装命令、`requirements.txt` 等残留，视为需要修复的 bug。
+
+## Skills
+
+本项目的 Skills 位于 `skills/` 目录，遵循 Agent Skills 开放标准（SKILL.md + YAML frontmatter）。
+
+可用 Skills：
+- `survey` — 综合文献调研（多源检索 + 去重 + 验证 + 报告生成）
+- `quick-search` — 快速单次检索
+- `review-results` — 审阅已有调研结果
+
+调用方式：
+- Claude Code：`/survey` 或 `$survey`
+- Codex CLI：运行 `./install-skills.sh` 后，`/survey` 或 `/prompts:survey`
+
+首次使用前运行 `./install-skills.sh` 安装 Skills 到各 Agent 的约定位置。
+
 ## 能力概览
 
 | 能力 | 说明 | 命令 |
@@ -53,6 +79,18 @@ hypo-research search "<query>" --source s2 --source arxiv
 - `--no-report`：不生成 Markdown 报告
 - `--no-auto-verify`：不做元数据质量检查
 
+### 配置 Semantic Scholar API Key（可选）
+
+申请地址：https://www.semanticscholar.org/product/api#api-key-form
+
+设置环境变量后可大幅提高搜索速率：
+
+```bash
+export SEMANTIC_SCHOLAR_API_KEY="your-key-here"
+```
+
+不设置时仍可使用（free tier，约 1 req/sec），大批量搜索可能触发 rate limit。
+
 ## 输出文件
 
 每次检索在 `--output-dir` 下生成：
@@ -95,6 +133,7 @@ src/hypo_research/
 ## 文件路由
 
 - Skill Prompt：`src/hypo_research/prompts/targeted_search.md`
-- Slash commands：`.claude/commands/`
+- Skills：`skills/`
+- 安装脚本：`install-skills.sh`
 - 用户指南：`docs/skill-usage-guide.md`
 - 测试：`tests/`

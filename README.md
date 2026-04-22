@@ -14,18 +14,21 @@
 
 ## 安装
 
+本项目使用 [uv](https://github.com/astral-sh/uv) 管理环境和依赖。
+
 ### 从源码安装（推荐）
 
 ```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
 git clone git@gitlab.vsplab.cn:heyx/hypo-research.git
 cd Hypo-Research
-pip install -e .
+uv sync
 ```
 
 ### 验证安装
 
 ```bash
-hypo-research --help
+uv run hypo-research --help
 ```
 
 ### 依赖
@@ -38,13 +41,13 @@ hypo-research --help
 ### 基本检索
 
 ```bash
-hypo-research search "你的检索词" --output-dir data/surveys/my_survey
+uv run hypo-research search "你的检索词" --output-dir data/surveys/my_survey
 ```
 
 ### 多 query 检索（推荐，覆盖更广）
 
 ```bash
-hypo-research search "main query" \
+uv run hypo-research search "main query" \
   -eq "expanded query 1" \
   -eq "expanded query 2" \
   --output-dir data/surveys/my_survey
@@ -53,7 +56,7 @@ hypo-research search "main query" \
 ### 指定数据源
 
 ```bash
-hypo-research search "query" --source s2 --source arxiv
+uv run hypo-research search "query" --source s2 --source arxiv
 ```
 
 可选源：`s2`（Semantic Scholar）、`openalex`、`arxiv`、`all`（默认）
@@ -61,8 +64,20 @@ hypo-research search "query" --source s2 --source arxiv
 ### 控制年份范围
 
 ```bash
-hypo-research search "query" --year-start 2020 --year-end 2026
+uv run hypo-research search "query" --year-start 2020 --year-end 2026
 ```
+
+## 配置 Semantic Scholar API Key（可选）
+
+申请地址：https://www.semanticscholar.org/product/api#api-key-form
+
+设置环境变量后可大幅提高搜索速率：
+
+```bash
+export SEMANTIC_SCHOLAR_API_KEY="your-key-here"
+```
+
+不设置时仍可使用（free tier，约 1 req/sec），大批量搜索可能触发 rate limit。
 
 ## 输出文件
 
@@ -85,8 +100,8 @@ hypo-research search "query" --year-start 2020 --year-end 2026
 
 Hypo-Research 可以作为 Claude Code / Codex 的 Skill 自动调用：
 
-- Claude Code：使用 `/survey`、`/quick-search`、`/review-results` 命令
-- Codex：直接自然语言描述调研需求，Codex 读取 `AGENTS.md` 自动调度
+- Claude Code：运行 `./install-skills.sh` 后，使用 `/survey`、`/quick-search`、`/review-results`
+- Codex：运行 `./install-skills.sh` 后，通过 `/prompts:survey` 或自然语言描述调研需求，由 `AGENTS.md` 自动调度
 
 详见 [docs/skill-usage-guide.md](/home/heyx/Hypo-Research/docs/skill-usage-guide.md)。
 
@@ -95,9 +110,9 @@ Hypo-Research 可以作为 Claude Code / Codex 的 Skill 自动调用：
 ### 运行测试
 
 ```bash
-pytest -v
-pytest -m e2e -v
-pytest -m "not e2e" -v
+uv run pytest -v
+uv run pytest -m e2e -v
+uv run pytest -m "not e2e" -v
 ```
 
 ## License
