@@ -36,6 +36,28 @@ export SEMANTIC_SCHOLAR_API_KEY="your-key-here"
 
 ---
 
+## Skills
+
+Hypo-Research provides **8 Skills** organized into two modules:
+
+### 📚 Survey Module — Literature Discovery & Analysis
+
+| Skill | Command | Description |
+|-------|---------|-------------|
+| `/hypo-survey` | `uv run hypo-research search` | Comprehensive literature survey with multi-source search, deduplication, and verification |
+| `/hypo-search` | `uv run hypo-research search` | Quick targeted search for specific papers or topics |
+| `/hypo-screen` | `Agent-driven (no standalone CLI)` | Filter and classify papers by relevance criteria |
+| `/hypo-cite` | `uv run hypo-research cite` | Citation graph traversal — expand references and citations from seed papers |
+
+### ✍️ Writing Module — LaTeX Paper Writing Assistance
+
+| Skill | Command | Description |
+|-------|---------|-------------|
+| `/hypo-lint` | `uv run hypo-research lint` | LaTeX structure checking — 13 rules covering `\cref`, floats, labels, `tblr`, title case, spacing, and more |
+| `/hypo-verify` | `uv run hypo-research verify` | Citation verification — check `.bib` entries against Semantic Scholar and OpenAlex |
+| `/hypo-polish` | `uv run hypo-research lint --stats` | English polishing — full-document scan or targeted section rewriting (Agent-driven, uses `chapter_stats`) |
+| `/hypo-translate` | `uv run hypo-research lint --stats` | Bilingual maintenance — sync/cn2en/en2cn modes for `% 中文注释` + English paragraph pairs |
+
 ## 📖 Skills 使用指南
 
 ### `/hypo-survey` — 综合文献调研
@@ -241,6 +263,53 @@ Agent 会逐篇标注类别，输出：
 
 ---
 
+### Writing Module Examples
+
+#### LaTeX Structure Check
+
+```bash
+# Human-readable lint report
+uv run hypo-research lint paper.tex
+
+# JSON stats for Agent consumption
+uv run hypo-research lint --stats paper.tex
+
+# Filter by specific rules
+uv run hypo-research lint --rules L01,L04,L07 paper.tex
+
+# Include .bib checks
+uv run hypo-research lint --bib refs.bib paper.tex
+```
+
+#### Citation Verification
+
+```bash
+# Verify all .bib entries (Markdown report)
+uv run hypo-research verify refs.bib
+
+# JSON output for programmatic use
+uv run hypo-research verify --stats refs.bib
+
+# Only verify entries actually cited in .tex
+uv run hypo-research verify --tex paper.tex refs.bib
+
+# Verify specific keys
+uv run hypo-research verify --keys craterlake2022,f1_2021 refs.bib
+```
+
+#### Polishing & Translation (Agent-driven)
+
+```bash
+# Get chapter-level writing statistics (for /hypo-polish)
+uv run hypo-research lint --stats paper.tex | jq '.chapter_stats'
+
+# Get bilingual paragraph pairs (for /hypo-translate)
+uv run hypo-research lint --stats paper.tex | jq '.paragraph_pairs'
+uv run hypo-research lint --stats paper.tex | jq '.orphan_paragraphs'
+```
+
+---
+
 ### 推荐工作流
 
 ```text
@@ -284,6 +353,16 @@ D: CIM/PIM + FHE
 
 Skills 遵循 [Agent Skills 开放标准](https://github.com/agentskills/agentskills)（SKILL.md + YAML frontmatter）。
 
+## Project Structure
+
+```text
+src/hypo_research/writing/
+├── __init__.py
+├── stats.py          # TexStats: labels, refs, floats, sections, chapter_stats, paragraph_pairs
+├── bib_parser.py     # BibEntryInfo: .bib file parsing
+└── verify.py         # Citation verification via S2/OpenAlex
+```
+
 ## ⚙️ 配置说明
 
 ### Semantic Scholar API Key
@@ -307,9 +386,19 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 ## 🛠️ 开发
 
 ```bash
+# 163 tests (160 passed + 3 skipped network)
 uv run pytest -v
 uv run hypo-research --help
 ```
+
+## Versions
+
+| Tag | Commit | Milestone | Skills |
+|-----|--------|-----------|--------|
+| v0.1.0 | 0bc7681 | M1-M5 | 4 (survey/search/screen/cite) |
+| v0.1.1 | 1705f5c | M5.1 | 4 (uv migration, arXiv fix) |
+| v0.2.0 | 14dcc84 | M6 | 4 + cite graph traversal |
+| v0.3.0 | 874218e | M7 | 8 (+ lint/verify/polish/translate) |
 
 ## 📄 License
 
