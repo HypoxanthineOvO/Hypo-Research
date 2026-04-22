@@ -26,6 +26,8 @@
 - `hypo-screen` — 按自定义规则筛选、分类、生成分析报告
 - `hypo-lint` — 检查 LaTeX 结构规范，输出问题并辅助自动修复
 - `hypo-verify` — 联网验证 `.bib` 引用是否真实存在并检查元数据错误
+- `hypo-polish` — 基于章节写作统计做英文润色建议或定向改写
+- `hypo-translate` — 维护中文注释与英文正文的双语同步
 
 调用方式：
 - Claude Code：`/hypo-survey` 或 `$hypo-survey`
@@ -54,6 +56,8 @@
 - 检查某个候选池是否漏掉关键论文
 - 检查 LaTeX 论文的 label / ref / float / BibTeX 结构问题
 - 检查 `.bib` 中是否存在幻觉论文或错误元数据
+- 对论文英文做润色或定向改写
+- 维护中英双语草稿的一致性
 
 ## 快速使用
 

@@ -8,6 +8,7 @@
 - **自动去重 & 交叉验证**：DOI / 标题+作者 双重匹配，标记 verified / single-source / suspicious
 - **筛选分类引擎**：按自定义规则对候选池分类，输出结构化分析报告
 - **LaTeX 结构检查**：静态提取 label / ref / float / BibTeX 统计，支持结构 lint 和自动修复
+- **写作维护工具**：支持引用验证、英文润色和中英双语同步维护
 - **结构化输出**：Markdown 报告 + BibTeX 引用 + JSON 元数据
 - **Skill 驱动**：通过 `/hypo-survey` 等命令直接调用，Agent 自动完成全流程
 
@@ -199,6 +200,47 @@ Agent 会逐篇标注类别，输出：
 
 ---
 
+### `/hypo-polish` — 学术英文润色
+
+对 LaTeX 论文做英文润色，支持全文扫描和定向段落两种模式。
+
+| 参数 | 必填 | 说明 | 示例 |
+|------|------|------|------|
+| `path` | ✅ | LaTeX 文件或目录 | `"paper.tex"` |
+| `mode` |  | `full` / `targeted` | `"full"` |
+| `target` |  | section 标题或行号范围 | `"Method"` |
+| `apply` |  | 是否直接写回 | `false` |
+
+**示例：**
+
+```text
+/hypo-polish path="paper.tex" mode=full
+/hypo-polish path="paper.tex" mode=targeted target="Method"
+```
+
+---
+
+### `/hypo-translate` — 中英双语翻译维护
+
+维护中文注释 + 英文正文的双语 LaTeX 草稿，支持同步检查、中文转英文、英文转中文。
+
+| 参数 | 必填 | 说明 | 示例 |
+|------|------|------|------|
+| `path` | ✅ | LaTeX 文件或目录 | `"paper.tex"` |
+| `mode` |  | `sync` / `cn2en` / `en2cn` | `"sync"` |
+| `target` |  | 可选 section 或行号范围 | `"Introduction"` |
+| `apply` |  | 是否直接写回 | `false` |
+
+**示例：**
+
+```text
+/hypo-translate path="paper.tex" mode=sync
+/hypo-translate path="paper.tex" mode=cn2en
+/hypo-translate path="paper.tex" mode=en2cn
+```
+
+---
+
 ### 推荐工作流
 
 ```text
@@ -227,6 +269,8 @@ D: CIM/PIM + FHE
 # 写作检查流程
 /hypo-lint path="docs/" fix=true
 /hypo-verify bib="refs.bib" tex="docs/"
+/hypo-polish path="paper.tex" mode=full
+/hypo-translate path="paper.tex" mode=sync
 ```
 
 ---

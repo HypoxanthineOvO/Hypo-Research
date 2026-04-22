@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install-skills.sh — install all Hypo-Research skills for Claude Code and Codex CLI
+# install-skills.sh — install all Hypo-Research skills (research + writing) for Claude Code and Codex CLI
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
