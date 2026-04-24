@@ -288,6 +288,19 @@ uv run hypo-research lint --rules L01,L04,L07 paper.tex
 
 # Include .bib checks
 uv run hypo-research lint --bib refs.bib paper.tex
+
+# Preview auto-fixes without modifying files
+uv run hypo-research lint --fix paper.tex
+uv run hypo-research lint --fix main.tex
+
+# Apply fixes in place
+uv run hypo-research lint --fix --no-dry-run paper.tex
+
+# Apply fixes with backups
+uv run hypo-research lint --fix --no-dry-run --backup paper.tex
+
+# Restrict auto-fix to selected rules
+uv run hypo-research lint --fix --rules L01,L04 paper.tex
 ```
 
 #### Citation Verification

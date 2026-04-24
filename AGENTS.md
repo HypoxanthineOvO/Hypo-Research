@@ -24,7 +24,7 @@
 - `hypo-cite` — 从种子论文沿引用 / 被引关系扩展候选池
 - `hypo-search` — 快速单次检索（点查 / 补充）
 - `hypo-screen` — 按自定义规则筛选、分类、生成分析报告
-- `hypo-lint` — 检查单文件或多文件 LaTeX 项目的结构规范，输出问题并辅助自动修复
+- `hypo-lint` — 检查单文件或多文件 LaTeX 项目的结构规范，支持 dry-run / backup 的自动修复
 - `hypo-verify` — 联网验证单/多 `.bib` 引用是否真实存在并检查元数据错误
 - `hypo-polish` — 基于章节写作统计做英文润色建议或定向改写，支持 `\input`/`\include` 项目
 - `hypo-translate` — 维护中文注释与英文正文的双语同步，支持多文件 LaTeX 项目

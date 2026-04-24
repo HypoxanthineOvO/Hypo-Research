@@ -85,3 +85,40 @@ uv run hypo-research lint --stats --project-dir ./paper main.tex
 - 默认先基于 `uv run hypo-research lint --stats ...` 的 JSON 输出结论，不要先凭感觉读全文。
 - 报告 findings 时按严重性排序，优先列出 `error`。
 - 如果用户要求修复，只修明确的结构问题；涉及学术判断的 L09/L10 只给建议，不擅自改写。
+
+## Auto-Fix
+
+The lint skill supports automatic fixing of common issues.
+
+### Dry-run (preview changes)
+
+```bash
+uv run hypo-research lint --fix paper.tex
+uv run hypo-research lint --fix main.tex
+```
+
+### Apply fixes
+
+```bash
+uv run hypo-research lint --fix --no-dry-run paper.tex
+uv run hypo-research lint --fix --no-dry-run --backup paper.tex
+```
+
+### Filter rules
+
+```bash
+uv run hypo-research lint --fix --rules L01,L04 paper.tex
+```
+
+### Auto-fixable rules
+
+| Rule | Fix |
+|------|-----|
+| L01 | `\ref` → `\cref` |
+| L02 | Insert `~` before `\cite` |
+| L03 | Remove redundant prefix before `\cref` |
+| L04 | Add `[htbp]` to float environments |
+| L05 | Title case for section/caption titles |
+| L06 | Delete orphan `\label` |
+| L11 | `\toprule` / `\midrule` / `\bottomrule` → `\hline` in `tblr` |
+| L13 | Insert `~` before `\cref` |

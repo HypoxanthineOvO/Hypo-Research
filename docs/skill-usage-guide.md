@@ -40,10 +40,18 @@ uv sync
 
 - `/hypo-lint path="main.tex"`
 - `/hypo-lint path="sections/intro.tex"`
+- `/hypo-lint path="paper.tex" fix=true`
 - `/hypo-verify tex="main.tex"`
 - `/hypo-verify project_dir="./paper"`
 - `/hypo-polish path="main.tex" mode=targeted target="Method"`
 - `/hypo-translate path="main.tex" mode=sync`
+
+对应 CLI：
+
+- `uv run hypo-research lint --fix paper.tex`
+- `uv run hypo-research lint --fix --no-dry-run paper.tex`
+- `uv run hypo-research lint --fix --no-dry-run --backup paper.tex`
+- `uv run hypo-research lint --fix --rules L01,L04 paper.tex`
 
 ## 在 Codex CLI 中使用
 

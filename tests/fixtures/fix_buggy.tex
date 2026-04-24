@@ -1,0 +1,44 @@
+\documentclass{article}
+\usepackage{cleveref}
+\usepackage{tabularray}
+
+\begin{document}
+
+\section{a simple test for auto-fix}
+\label{sec:intro}
+
+As shown in Figure~\ref{fig:test}, the results.
+See Section~\ref{sec:method} for details.
+
+This is discussed in\cite{smith2023}.
+Another reference \cite{jones2024}.
+
+Figure~\cref{fig:test} shows the overview.
+Table~\cref{tab:results} lists the numbers.
+
+\begin{figure}
+\centering
+\caption{test figure}
+\label{fig:test}
+\end{figure}
+
+\begin{table}
+\caption{results comparison}
+\label{tab:results}
+\begin{tblr}{lcc}
+\toprule
+Method & Accuracy & Speed \\
+\midrule
+Ours & 95.2 & 1.5x \\
+\bottomrule
+\end{tblr}
+\end{table}
+
+\section{method details}
+\label{sec:method}
+
+Some content here.
+
+\label{orphan:unused}
+
+\end{document}

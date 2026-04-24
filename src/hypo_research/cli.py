@@ -33,6 +33,7 @@ from hypo_research.hooks import AutoBibHook, AutoReportHook, AutoVerifyHook, Hoo
 from hypo_research.output.json_output import write_search_output
 from hypo_research.survey.targeted import TargetedSearch, slugify_query
 from hypo_research.writing.bib_parser import parse_bib, parse_bib_files
+from hypo_research.writing.fixer import FixReport, apply_fixes, generate_fixes
 from hypo_research.writing.project import MultipleMainFilesError, TexProject, resolve_project
 from hypo_research.writing.stats import TexStats, extract_stats
 from hypo_research.writing.verify import VerifyReport, verify_bib
@@ -128,6 +129,39 @@ def _format_lint_issue(issue: object, *, show_file: bool) -> str:
     if show_file and file:
         return f"[{rule}] {file}:{line} — {message}"
     return f"[{rule}] line {line} — {message}"
+
+
+def _format_fix(fix: object, *, show_file: bool, applied: bool) -> str:
+    rule = getattr(fix, "rule")
+    file = getattr(fix, "file")
+    line = getattr(fix, "line")
+    original = getattr(fix, "original")
+    replacement = getattr(fix, "replacement")
+    location = f"{file}:{line}" if show_file and file else f"line {line}"
+    status = " ✓" if applied else ""
+    return f"[{rule}] {location} — {original} → {replacement}{status}"
+
+
+def _render_fix_report(report: FixReport, *, show_file: bool) -> list[str]:
+    title = "=== Auto-Fix Report (dry-run) ===" if report.dry_run else "=== Auto-Fix Report ==="
+    lines = [title, ""]
+    if report.fixes:
+        for fix in report.fixes:
+            lines.append(_format_fix(fix, show_file=show_file, applied=not report.dry_run))
+    else:
+        lines.append("No fixes available.")
+
+    lines.append("")
+    if report.dry_run:
+        lines.append(f"{len(report.fixes)} fixes available. Run with --no-dry-run to apply.")
+    else:
+        lines.append(f"{len(report.fixes)} fixes applied to {len(report.files_modified)} files.")
+        if report.backup_paths:
+            lines.append(f"Backup: {', '.join(report.backup_paths)}")
+    if report.errors:
+        lines.append(f"Errors: {len(report.errors)}")
+        lines.extend(report.errors)
+    return lines
 
 
 def _lint_exit_code(stats: TexStats, rules: set[str] | None) -> int:
@@ -848,6 +882,25 @@ def cite(
     help="Print complete lint statistics JSON to stdout.",
 )
 @click.option(
+    "--fix",
+    "fix_mode",
+    is_flag=True,
+    default=False,
+    help="Generate auto-fixes. Defaults to dry-run preview mode.",
+)
+@click.option(
+    "--no-dry-run",
+    is_flag=True,
+    default=False,
+    help="Apply fixes to files instead of previewing them.",
+)
+@click.option(
+    "--backup",
+    is_flag=True,
+    default=False,
+    help="Create .bak backups before writing fixes.",
+)
+@click.option(
     "--rules",
     type=str,
     default=None,
@@ -871,12 +924,22 @@ def cite(
 )
 def lint(
     stats_mode: bool,
+    fix_mode: bool,
+    no_dry_run: bool,
+    backup: bool,
     rules: str | None,
     bib: Path | None,
     project_dir: Path | None,
     path: Path,
 ) -> None:
     """Extract and report LaTeX structure lint issues."""
+    if no_dry_run and not fix_mode:
+        raise click.ClickException("--no-dry-run requires --fix")
+    if backup and not fix_mode:
+        raise click.ClickException("--backup requires --fix")
+    if backup and not no_dry_run:
+        raise click.ClickException("--backup requires --fix --no-dry-run")
+
     selected_rules = _parse_rules_option(rules)
     resolved_project_dir = project_dir.resolve() if project_dir is not None else None
     project = _resolve_project_arg(path, project_dir=resolved_project_dir)
@@ -887,6 +950,25 @@ def lint(
         project=project,
     )
     show_file = stats.project is not None
+
+    if fix_mode:
+        fixes = generate_fixes(
+            stats,
+            project=project,
+            rules=sorted(selected_rules) if selected_rules is not None else None,
+        )
+        report = apply_fixes(
+            fixes,
+            project=project,
+            dry_run=not no_dry_run,
+            backup=backup and no_dry_run is False,
+        )
+        if stats_mode:
+            click.echo(report.to_json(), nl=False)
+        else:
+            for line in _render_fix_report(report, show_file=show_file):
+                click.echo(line)
+        raise click.exceptions.Exit(1 if report.errors else 0)
 
     if stats_mode:
         click.echo(stats.to_json(selected_rules), nl=False)
