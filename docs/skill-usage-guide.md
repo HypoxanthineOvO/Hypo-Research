@@ -36,6 +36,15 @@ uv sync
 - `/hypo-polish path="paper.tex" mode=full`
 - `/hypo-translate path="paper.tex" mode=sync`
 
+多文件 LaTeX 项目也支持：
+
+- `/hypo-lint path="main.tex"`
+- `/hypo-lint path="sections/intro.tex"`
+- `/hypo-verify tex="main.tex"`
+- `/hypo-verify project_dir="./paper"`
+- `/hypo-polish path="main.tex" mode=targeted target="Method"`
+- `/hypo-translate path="main.tex" mode=sync`
+
 ## 在 Codex CLI 中使用
 
 执行 `./install-skills.sh` 后，可直接使用：

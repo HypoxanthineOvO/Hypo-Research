@@ -9,7 +9,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from hypo_research.writing.bib_parser import BibEntryInfo, parse_bib
+from hypo_research.writing.bib_parser import BibEntryInfo, parse_bib, parse_bib_files
+from hypo_research.writing.project import TexProject, resolve_project
 
 
 _SECTION_RE = re.compile(r"\\(?P<level>section|subsection|subsubsection)\*?\{(?P<title>[^}]*)\}")
@@ -78,40 +79,44 @@ _SENTENCE_PLACEHOLDERS = {
 @dataclass
 class LabelInfo:
     name: str
-    file: str
-    line: int
-    env: str
-    has_prefix: bool
-    suggested_prefix: str
+    file: str = ""
+    line: int = 0
+    env: str = ""
+    has_prefix: bool = False
+    suggested_prefix: str = ""
 
 
 @dataclass
 class RefInfo:
     ref_type: str
     target: str
-    file: str
-    line: int
-    has_tilde: bool
+    file: str = ""
+    line: int = 0
+    has_tilde: bool = False
+
+    @property
+    def type(self) -> str:
+        return self.ref_type
 
 
 @dataclass
 class FloatInfo:
     float_type: str
-    file: str
-    line: int
-    placement: str
-    has_label: bool
-    has_caption: bool
-    label_before_caption: bool
-    label_name: str
+    file: str = ""
+    line: int = 0
+    placement: str = ""
+    has_label: bool = False
+    has_caption: bool = False
+    label_before_caption: bool = False
+    label_name: str = ""
 
 
 @dataclass
 class SectionInfo:
     level: str
     title: str
-    file: str
-    line: int
+    file: str = ""
+    line: int = 0
 
 
 @dataclass
@@ -128,6 +133,7 @@ class ChapterStats:
     avg_sentence_length: float
     paragraph_starts: list[str]
     long_sentences: list[dict[str, Any]]
+    file: str = ""
 
 
 @dataclass
@@ -138,29 +144,30 @@ class AbbrevInfo:
     context_before: str
     context_after: str
     has_expansion: bool
+    file: str = ""
 
 
 @dataclass
 class EnvInfo:
     env_name: str
-    file: str
-    line: int
+    file: str = ""
+    line: int = 0
 
 
 @dataclass
 class TildeIssue:
     issue_type: str
-    file: str
-    line: int
-    context: str
+    file: str = ""
+    line: int = 0
+    context: str = ""
 
 
 @dataclass
 class CitationInfo:
     key: str
-    file: str
-    line: int
-    context: str
+    file: str = ""
+    line: int = 0
+    context: str = ""
 
 
 @dataclass
@@ -172,6 +179,7 @@ class ParagraphPair:
     chinese: str
     english: str
     section: str
+    file: str = ""
 
 
 @dataclass
@@ -183,6 +191,7 @@ class OrphanParagraph:
     text: str
     type: str
     section: str
+    file: str = ""
 
 
 @dataclass
@@ -225,6 +234,7 @@ class TexStats:
     chapter_stats: list[ChapterStats] = field(default_factory=list)
     paragraph_pairs: list[ParagraphPair] = field(default_factory=list)
     orphan_paragraphs: list[OrphanParagraph] = field(default_factory=list)
+    project: dict[str, Any] | None = None
     issues: list[LintIssue] = field(default_factory=list, repr=False)
 
     def filtered_issues(self, rules: set[str] | None = None) -> list[LintIssue]:
@@ -282,6 +292,7 @@ class TexStats:
             "chapter_stats": [asdict(chapter) for chapter in self.chapter_stats],
             "paragraph_pairs": [asdict(pair) for pair in self.paragraph_pairs],
             "orphan_paragraphs": [asdict(orphan) for orphan in self.orphan_paragraphs],
+            "project": self.project,
         }
 
     def to_json(self, rules: set[str] | None = None) -> str:
@@ -335,14 +346,52 @@ class _ParagraphBlock:
 
 
 def extract_stats(
-    path: str,
+    tex_path: str | Path,
+    bib_path: str | Path | None = None,
+    *,
+    project: TexProject | None = None,
     bib_paths: list[str] | None = None,
 ) -> TexStats:
-    """Extract static LaTeX structure statistics from a file or project directory."""
-    target_path = Path(path)
-    ordered_files = _ordered_tex_files(target_path)
-    file_strings = [file.as_posix() for file in ordered_files]
-    raw_lines_by_file: dict[str, list[str]] = {}
+    """Extract static LaTeX structure statistics from a file or project."""
+    target_path = Path(tex_path)
+    resolved_project = project
+    if resolved_project is None and target_path.exists() and target_path.is_file():
+        resolved_project = resolve_project(target_path)
+
+    multi_file = resolved_project is not None and len(resolved_project.files) > 1
+    if resolved_project is not None:
+        analysis_files = [
+            {
+                "source_id": tex_file.abs_path.as_posix(),
+                "path": tex_file.abs_path,
+                "display_file": tex_file.path.as_posix() if multi_file else "",
+                "raw_lines": tex_file.content.splitlines(),
+            }
+            for tex_file in resolved_project.files
+        ]
+        file_strings = [
+            tex_file.path.as_posix() if multi_file else tex_file.abs_path.as_posix()
+            for tex_file in resolved_project.files
+        ]
+    else:
+        ordered_files = _ordered_tex_files(target_path)
+        analysis_files = [
+            {
+                "source_id": tex_file.as_posix(),
+                "path": tex_file,
+                "display_file": tex_file.as_posix(),
+                "raw_lines": tex_file.read_text(encoding="utf-8").splitlines(),
+            }
+            for tex_file in ordered_files
+        ]
+        file_strings = [file["display_file"] for file in analysis_files]
+
+    raw_lines_by_source: dict[str, list[str]] = {
+        str(file_info["source_id"]): list(file_info["raw_lines"]) for file_info in analysis_files
+    }
+    display_by_source: dict[str, str] = {
+        str(file_info["source_id"]): str(file_info["display_file"]) for file_info in analysis_files
+    }
 
     labels: list[LabelInfo] = []
     refs: list[RefInfo] = []
@@ -356,27 +405,34 @@ def extract_stats(
     orphan_paragraphs: list[OrphanParagraph] = []
     environments: dict[str, list[EnvInfo]] = defaultdict(list)
     abbreviation_occurrences: dict[str, list[_Occurrence]] = defaultdict(list)
-    discovered_bib_paths: set[Path] = set()
+    labels_by_source: dict[str, list[LabelInfo]] = defaultdict(list)
+    sections_by_source: dict[str, list[SectionInfo]] = defaultdict(list)
+    discovered_bib_paths: list[Path] = []
+    seen_bib_paths: set[Path] = set()
 
-    for tex_file in ordered_files:
-        raw_lines = tex_file.read_text(encoding="utf-8").splitlines()
-        raw_lines_by_file[tex_file.as_posix()] = raw_lines
+    for file_info in analysis_files:
+        source_id = str(file_info["source_id"])
+        tex_file = Path(file_info["path"])
+        display_file = str(file_info["display_file"])
+        raw_lines = list(file_info["raw_lines"])
         code_lines = [_strip_comments(line) for line in raw_lines]
         env_stack: list[tuple[str, str, _FloatTracker | None]] = []
         current_section_env = "other"
 
-        if bib_paths is None:
-            discovered_bib_paths.update(_infer_bib_paths(tex_file, raw_lines))
+        if bib_path is None and bib_paths is None and resolved_project is None:
+            for discovered in sorted(_infer_bib_paths(tex_file, raw_lines)):
+                if discovered not in seen_bib_paths:
+                    discovered_bib_paths.append(discovered)
+                    seen_bib_paths.add(discovered)
 
         for line_number, (raw_line, code_line) in enumerate(
             zip(raw_lines, code_lines, strict=False),
             start=1,
         ):
-            stripped_code = code_line.strip()
             _collect_spacing_issues(
                 raw_line=raw_line,
                 code_line=code_line,
-                file=tex_file.as_posix(),
+                file=display_file,
                 line_number=line_number,
                 spacing_issues=spacing_issues,
             )
@@ -384,7 +440,7 @@ def extract_stats(
             _collect_abbreviations(
                 raw_lines=raw_lines,
                 raw_line=raw_line,
-                file=tex_file.as_posix(),
+                file=display_file,
                 line_number=line_number,
                 occurrences=abbreviation_occurrences,
             )
@@ -393,39 +449,36 @@ def extract_stats(
                 section = SectionInfo(
                     level=match.group("level"),
                     title=match.group("title").strip(),
-                    file=tex_file.as_posix(),
+                    file=display_file,
                     line=line_number,
                 )
                 sections.append(section)
+                sections_by_source[source_id].append(section)
                 current_section_env = "section"
 
             for match in _BEGIN_RE.finditer(code_line):
                 env_name = match.group("name").strip()
                 base_env = _normalize_environment_name(env_name)
                 environments[base_env].append(
-                    EnvInfo(env_name=base_env, file=tex_file.as_posix(), line=line_number)
+                    EnvInfo(env_name=base_env, file=display_file, line=line_number)
                 )
                 float_tracker = None
                 if base_env in {"figure", "table"}:
                     float_tracker = _FloatTracker(
                         float_type=base_env,
-                        file=tex_file.as_posix(),
+                        file=display_file,
                         line=line_number,
                         placement=match.group("placement") or "",
                     )
                 env_stack.append((env_name, base_env, float_tracker))
 
-            command_events = _line_command_events(code_line)
-            for event_name, event_match in command_events:
+            for event_name, event_match in _line_command_events(code_line):
                 if event_name == "caption":
                     active_float = _active_float_tracker(env_stack)
                     if active_float is not None:
                         active_float.has_caption = True
                         if active_float.first_caption_position is None:
-                            active_float.first_caption_position = (
-                                line_number,
-                                event_match.start(),
-                            )
+                            active_float.first_caption_position = (line_number, event_match.start())
                     continue
 
                 if event_name == "label":
@@ -434,26 +487,23 @@ def extract_stats(
                         env_stack=env_stack,
                         current_section_env=current_section_env,
                     )
-                    labels.append(
-                        LabelInfo(
-                            name=label_name,
-                            file=tex_file.as_posix(),
-                            line=line_number,
-                            env=label_env,
-                            has_prefix=_has_expected_prefix(label_name, suggested_prefix),
-                            suggested_prefix=suggested_prefix,
-                        )
+                    label = LabelInfo(
+                        name=label_name,
+                        file=display_file,
+                        line=line_number,
+                        env=label_env,
+                        has_prefix=_has_expected_prefix(label_name, suggested_prefix),
+                        suggested_prefix=suggested_prefix,
                     )
+                    labels.append(label)
+                    labels_by_source[source_id].append(label)
                     active_float = _active_float_tracker(env_stack)
                     if active_float is not None:
                         active_float.has_label = True
                         if not active_float.label_name:
                             active_float.label_name = label_name
                         if active_float.first_label_position is None:
-                            active_float.first_label_position = (
-                                line_number,
-                                event_match.start(),
-                            )
+                            active_float.first_label_position = (line_number, event_match.start())
                     continue
 
                 if event_name == "ref":
@@ -465,7 +515,7 @@ def extract_stats(
                             RefInfo(
                                 ref_type=ref_kind,
                                 target=target,
-                                file=tex_file.as_posix(),
+                                file=display_file,
                                 line=line_number,
                                 has_tilde=has_tilde,
                             )
@@ -474,7 +524,7 @@ def extract_stats(
                         tilde_issues.append(
                             TildeIssue(
                                 issue_type="cref",
-                                file=tex_file.as_posix(),
+                                file=display_file,
                                 line=line_number,
                                 context=raw_line.strip(),
                             )
@@ -489,7 +539,7 @@ def extract_stats(
                         citations.append(
                             CitationInfo(
                                 key=key,
-                                file=tex_file.as_posix(),
+                                file=display_file,
                                 line=line_number,
                                 context=context,
                             )
@@ -498,7 +548,7 @@ def extract_stats(
                         tilde_issues.append(
                             TildeIssue(
                                 issue_type="cite",
-                                file=tex_file.as_posix(),
+                                file=display_file,
                                 line=line_number,
                                 context=raw_line.strip(),
                             )
@@ -516,30 +566,55 @@ def extract_stats(
 
     label_names = {label.name for label in labels}
     ref_targets = [ref.target for ref in refs]
-    orphan_labels = sorted(label.name for label in labels if label.name not in set(ref_targets))
-    orphan_refs = sorted(target for target in set(ref_targets) if target not in label_names)
+    ref_target_set = set(ref_targets)
+    orphan_labels = sorted(label.name for label in labels if label.name not in ref_target_set)
+    orphan_refs = sorted(target for target in ref_target_set if target not in label_names)
 
-    resolved_bib_paths = [Path(bib_path) for bib_path in bib_paths] if bib_paths else sorted(discovered_bib_paths)
-    bib_entries: list[BibEntryInfo] = []
-    for bib_path in resolved_bib_paths:
-        if bib_path.exists():
-            bib_entries.extend(parse_bib(bib_path.as_posix()))
+    resolved_bib_paths = _resolve_bib_inputs(
+        bib_path=bib_path,
+        bib_paths=bib_paths,
+        project=resolved_project,
+        discovered_bib_paths=discovered_bib_paths,
+    )
+    existing_bib_paths = [path for path in resolved_bib_paths if path.exists()]
+    if len(existing_bib_paths) > 1:
+        bib_entries = parse_bib_files(existing_bib_paths)
+    elif existing_bib_paths:
+        bib_entries = parse_bib(existing_bib_paths[0].as_posix())
+    else:
+        bib_entries = []
+    if resolved_project is not None:
+        for entry in bib_entries:
+            if entry.file:
+                entry_path = Path(entry.file)
+                if entry_path.is_relative_to(resolved_project.project_dir):
+                    entry.file = entry_path.relative_to(resolved_project.project_dir).as_posix()
+            if entry.source_file:
+                source_path = Path(entry.source_file)
+                if source_path.is_relative_to(resolved_project.project_dir):
+                    entry.source_file = source_path.relative_to(resolved_project.project_dir).as_posix()
 
     abbreviations = _build_abbreviation_info(abbreviation_occurrences)
-    for file_path in file_strings:
-        raw_lines = raw_lines_by_file[file_path]
-        file_sections = [section for section in sections if section.file == file_path]
-        file_labels = [label for label in labels if label.file == file_path]
+    for abbreviation in abbreviations:
+        occurrence_file = abbreviation.first_occurrence.get("file")
+        abbreviation.file = str(occurrence_file) if isinstance(occurrence_file, str) else ""
+
+    for file_info in analysis_files:
+        source_id = str(file_info["source_id"])
+        raw_lines = raw_lines_by_source[source_id]
+        display_file = display_by_source[source_id]
         chapter_stats.extend(
             _build_chapter_stats(
                 raw_lines=raw_lines,
-                sections=file_sections,
-                labels=file_labels,
+                sections=sections_by_source[source_id],
+                labels=labels_by_source[source_id],
+                file=display_file,
             )
         )
         pairs, orphans = _build_paragraph_pairs(
             raw_lines=raw_lines,
-            sections=file_sections,
+            sections=sections_by_source[source_id],
+            file=display_file,
         )
         paragraph_pairs.extend(pairs)
         orphan_paragraphs.extend(orphans)
@@ -561,9 +636,41 @@ def extract_stats(
         chapter_stats=chapter_stats,
         paragraph_pairs=paragraph_pairs,
         orphan_paragraphs=orphan_paragraphs,
+        project=_stats_project_payload(resolved_project) if multi_file else None,
     )
     stats.issues = _build_issues(stats)
     return stats
+
+
+def _resolve_bib_inputs(
+    *,
+    bib_path: str | Path | None,
+    bib_paths: list[str] | None,
+    project: TexProject | None,
+    discovered_bib_paths: list[Path],
+) -> list[Path]:
+    if bib_paths:
+        return [Path(path) for path in bib_paths]
+    if bib_path is not None:
+        return [Path(bib_path)]
+    if project is not None and project.bib_files:
+        return list(project.bib_files)
+    return discovered_bib_paths
+
+
+def _stats_project_payload(project: TexProject | None) -> dict[str, Any] | None:
+    if project is None or len(project.files) <= 1:
+        return None
+    return {
+        "root_file": project.root_file.relative_to(project.project_dir).as_posix(),
+        "files": [tex_file.path.as_posix() for tex_file in project.files],
+        "bib_files": [
+            bib_file.relative_to(project.project_dir).as_posix()
+            if bib_file.is_relative_to(project.project_dir)
+            else bib_file.as_posix()
+            for bib_file in project.bib_files
+        ],
+    }
 
 
 def _ordered_tex_files(target_path: Path) -> list[Path]:
@@ -731,6 +838,7 @@ def _build_chapter_stats(
     raw_lines: list[str],
     sections: list[SectionInfo],
     labels: list[LabelInfo],
+    file: str,
 ) -> list[ChapterStats]:
     chapter_stats: list[ChapterStats] = []
     if not sections:
@@ -793,6 +901,7 @@ def _build_chapter_stats(
                 avg_sentence_length=avg_sentence_length,
                 paragraph_starts=paragraph_starts,
                 long_sentences=long_sentences,
+                file=file,
             )
         )
 
@@ -802,6 +911,7 @@ def _build_chapter_stats(
 def _build_paragraph_pairs(
     raw_lines: list[str],
     sections: list[SectionInfo],
+    file: str,
 ) -> tuple[list[ParagraphPair], list[OrphanParagraph]]:
     pairs: list[ParagraphPair] = []
     orphans: list[OrphanParagraph] = []
@@ -822,6 +932,7 @@ def _build_paragraph_pairs(
                         text="\n".join(pending_comment_lines),
                         type="missing_english",
                         section=_section_for_line(sections, pending_comment_start),
+                        file=file,
                     )
                 )
                 pending_comment_lines = []
@@ -845,6 +956,7 @@ def _build_paragraph_pairs(
                         text="\n".join(pending_comment_lines),
                         type="missing_english",
                         section=_section_for_line(sections, pending_comment_start),
+                        file=file,
                     )
                 )
                 pending_comment_lines = []
@@ -875,6 +987,7 @@ def _build_paragraph_pairs(
                     chinese=" ".join(pending_comment_lines).strip(),
                     english=english,
                     section=section,
+                    file=file,
                 )
             )
             pending_comment_lines = []
@@ -887,6 +1000,7 @@ def _build_paragraph_pairs(
                     text=english,
                     type="missing_chinese",
                     section=section,
+                    file=file,
                 )
             )
 
@@ -898,6 +1012,7 @@ def _build_paragraph_pairs(
                 text="\n".join(pending_comment_lines),
                 type="missing_english",
                 section=_section_for_line(sections, pending_comment_start),
+                file=file,
             )
         )
 

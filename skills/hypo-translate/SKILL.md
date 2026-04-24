@@ -23,6 +23,7 @@ We propose an FHE acceleration framework based on optimized NTT pipelines.
 
 $ARGUMENTS
 - `path`: LaTeX 文件或项目目录，必填
+- `project_dir`: 显式项目根目录，可选；多文件项目推荐
 - `mode`: `sync` / `cn2en` / `en2cn`，可选，默认 `sync`
 - `apply`: 是否直接写回 `.tex`，可选，默认只输出建议
 - `target`: 可选，限定 section 标题或行号范围
@@ -41,6 +42,8 @@ $ARGUMENTS
 ```bash
 uv run hypo-research lint --stats <path>
 ```
+
+对于多文件 LaTeX 项目，`<path>` 可以直接传 `main.tex` 或任一 `sections/*.tex` 子文件；必要时补 `--project-dir ./paper`。
 
 2. 在 `mode=sync` 下：
    - 读取 `paragraph_pairs`

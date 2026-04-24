@@ -11,7 +11,8 @@ from typing import Any
 
 from hypo_research.core.models import PaperResult, SearchParams
 from hypo_research.core.sources import OpenAlexSource, SemanticScholarSource, SourceError
-from hypo_research.writing.bib_parser import BibEntryInfo, parse_bib
+from hypo_research.writing.bib_parser import BibEntryInfo, parse_bib, parse_bib_files
+from hypo_research.writing.project import TexProject
 from hypo_research.writing.stats import extract_stats
 
 
@@ -178,17 +179,38 @@ _TITLE_EXPANSIONS = {
 
 
 async def verify_bib(
-    bib_path: str,
-    tex_path: str | None = None,
+    bib_path: str | Path | None = None,
     *,
+    bib_paths: list[str | Path] | None = None,
+    tex_path: str | Path | None = None,
+    project: TexProject | None = None,
     keys: list[str] | None = None,
     s2_source: SemanticScholarSource | None = None,
     openalex_source: OpenAlexSource | None = None,
     progress_callback: Any | None = None,
 ) -> VerifyReport:
     """Verify BibTeX entries against Semantic Scholar and OpenAlex."""
-    entries = parse_bib(bib_path)
-    selected_entries, skipped = _select_entries(entries, tex_path=tex_path, keys=keys)
+    resolved_bib_paths = _resolve_verify_bib_paths(
+        bib_path=bib_path,
+        bib_paths=bib_paths,
+        project=project,
+    )
+    if not resolved_bib_paths:
+        raise ValueError("No BibTeX files provided or discovered for verification")
+
+    existing_bib_paths = [path for path in resolved_bib_paths if path.exists()]
+    if len(existing_bib_paths) > 1:
+        entries = parse_bib_files(existing_bib_paths)
+    elif existing_bib_paths:
+        entries = parse_bib(existing_bib_paths[0].as_posix())
+    else:
+        entries = []
+    selected_entries, skipped = _select_entries(
+        entries,
+        tex_path=tex_path,
+        project=project,
+        keys=keys,
+    )
 
     owns_s2 = s2_source is None
     owns_openalex = openalex_source is None
@@ -478,15 +500,22 @@ async def _search_best_match(source: Any, query: str) -> PaperResult | None:
 def _select_entries(
     entries: list[BibEntryInfo],
     *,
-    tex_path: str | None,
+    tex_path: str | Path | None,
+    project: TexProject | None,
     keys: list[str] | None,
 ) -> tuple[list[BibEntryInfo], list[str]]:
     skipped: list[str] = []
     entries_by_key = {entry.key: entry for entry in entries}
     selected_keys: set[str] | None = None
 
-    if tex_path is not None:
-        stats = extract_stats(tex_path)
+    if project is not None or tex_path is not None:
+        project_tex_path = (
+            Path(tex_path)
+            if tex_path is not None
+            else (project.root_file if project is not None else None)
+        )
+        assert project_tex_path is not None
+        stats = extract_stats(project_tex_path, project=project)
         cited_keys = {citation.key for citation in stats.citations}
         selected_keys = cited_keys if selected_keys is None else selected_keys & cited_keys
 
@@ -507,6 +536,21 @@ def _select_entries(
         and not (entry.fields.get("title") or entry.fields.get("doi"))
     )
     return selected_entries, list(dict.fromkeys(skipped))
+
+
+def _resolve_verify_bib_paths(
+    *,
+    bib_path: str | Path | None,
+    bib_paths: list[str | Path] | None,
+    project: TexProject | None,
+) -> list[Path]:
+    if bib_paths:
+        return [Path(path) for path in bib_paths]
+    if bib_path is not None:
+        return [Path(bib_path)]
+    if project is not None:
+        return list(project.bib_files)
+    return []
 
 
 def _normalize_title_tokens(value: str) -> list[str]:

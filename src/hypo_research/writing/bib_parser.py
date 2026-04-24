@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -16,6 +16,7 @@ class BibEntryInfo:
     missing_fields: list[str]
     file: str = ""
     line: int = 0
+    source_file: str = ""
 
 
 _REQUIRED_FIELDS: dict[str, list[str]] = {
@@ -64,10 +65,26 @@ def parse_bib(path: str) -> list[BibEntryInfo]:
                 missing_fields=missing_fields,
                 file=bib_path.as_posix(),
                 line=line,
+                source_file=bib_path.as_posix(),
             )
         )
 
     return entries
+
+
+def parse_bib_files(bib_paths: list[str | Path]) -> list[BibEntryInfo]:
+    """Parse multiple BibTeX files and merge entries by key."""
+    merged: dict[str, BibEntryInfo] = {}
+    for bib_path in bib_paths:
+        for entry in parse_bib(str(bib_path)):
+            existing = merged.get(entry.key)
+            if existing is None or _entry_completeness(entry) >= _entry_completeness(existing):
+                merged[entry.key] = entry
+    return sorted(merged.values(), key=lambda entry: entry.key)
+
+
+def _entry_completeness(entry: BibEntryInfo) -> tuple[int, int]:
+    return (len(entry.fields), -len(entry.missing_fields))
 
 
 def _iter_entries(text: str) -> list[tuple[str, int, str]]:

@@ -19,6 +19,7 @@ license: MIT
 $ARGUMENTS
 - path: LaTeX 项目路径（必填）
 - bib: `.bib` 文件路径（可选）
+- project_dir: 显式项目根目录（可选，多文件项目时优先）
 - rules: 只检查指定规则（可选，如 `L01,L04,L07`）
 - fix: 是否自动修复可修复项（可选，布尔值）
 
@@ -34,6 +35,14 @@ uv run hypo-research lint --stats <path>
 
 ```bash
 uv run hypo-research lint --stats --bib <bib> <path>
+```
+
+多文件项目可直接从主文件或子文件启动：
+
+```bash
+uv run hypo-research lint --stats main.tex
+uv run hypo-research lint --stats sections/intro.tex
+uv run hypo-research lint --stats --project-dir ./paper main.tex
 ```
 
 2. 读取 JSON 中的 `issues` 数组，逐项报告 L01-L08、L11-L13 的客观违规项。

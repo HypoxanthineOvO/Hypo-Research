@@ -17,6 +17,7 @@ license: MIT
 
 $ARGUMENTS
 - `path`: LaTeX 文件或项目目录，必填
+- `project_dir`: 显式项目根目录，可选；多文件项目推荐
 - `mode`: `full` 或 `targeted`，可选，默认 `full`
 - `target`: section 标题或行号范围，`mode=targeted` 时可选但强烈建议提供
 - `apply`: 是否直接改文件，可选，默认只输出建议
@@ -28,6 +29,8 @@ $ARGUMENTS
 ```bash
 uv run hypo-research lint --stats <path>
 ```
+
+对于多文件 LaTeX 项目，`<path>` 可以是 `main.tex` 或任一子文件；必要时补 `--project-dir ./paper`。
 
 2. 在 `mode=full` 下：
    - 读取 `chapter_stats`

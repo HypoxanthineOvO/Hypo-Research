@@ -32,7 +32,8 @@ from hypo_research.core.verifier import Verifier
 from hypo_research.hooks import AutoBibHook, AutoReportHook, AutoVerifyHook, HookContext, HookEvent, HookManager
 from hypo_research.output.json_output import write_search_output
 from hypo_research.survey.targeted import TargetedSearch, slugify_query
-from hypo_research.writing.bib_parser import parse_bib
+from hypo_research.writing.bib_parser import parse_bib, parse_bib_files
+from hypo_research.writing.project import MultipleMainFilesError, TexProject, resolve_project
 from hypo_research.writing.stats import TexStats, extract_stats
 from hypo_research.writing.verify import VerifyReport, verify_bib
 
@@ -118,14 +119,15 @@ def _parse_rules_option(raw_value: str | None) -> set[str] | None:
     return rules or None
 
 
-def _format_lint_issue(issue: object) -> str:
+def _format_lint_issue(issue: object, *, show_file: bool) -> str:
     """Render a human-readable lint issue line."""
     rule = getattr(issue, "rule")
-    severity = str(getattr(issue, "severity")).upper()
     file = getattr(issue, "file")
     line = getattr(issue, "line")
     message = getattr(issue, "message")
-    return f"[{rule}] {severity} {file}:{line}  {message}"
+    if show_file and file:
+        return f"[{rule}] {file}:{line} — {message}"
+    return f"[{rule}] line {line} — {message}"
 
 
 def _lint_exit_code(stats: TexStats, rules: set[str] | None) -> int:
@@ -147,15 +149,27 @@ def _verify_exit_code(report: VerifyReport) -> int:
 
 
 def _estimate_verify_total(
-    bib_path: Path,
+    bib_path: Path | None,
+    bib_paths: list[Path] | None,
     tex_path: Path | None,
+    project: TexProject | None,
     keys: list[str] | None,
 ) -> int:
     """Estimate how many entries will be verified for progress reporting."""
-    entries = parse_bib(bib_path.as_posix())
+    if bib_paths:
+        entries = parse_bib_files(bib_paths)
+    elif bib_path is not None:
+        entries = parse_bib(bib_path.as_posix())
+    elif project is not None:
+        entries = parse_bib_files(project.bib_files) if len(project.bib_files) > 1 else (
+            parse_bib(project.bib_files[0].as_posix()) if project.bib_files else []
+        )
+    else:
+        entries = []
     selected_keys = {key for key in keys or []} if keys else None
-    if tex_path is not None:
-        cited_keys = {citation.key for citation in extract_stats(tex_path.as_posix()).citations}
+    if tex_path is not None or project is not None:
+        stats = extract_stats(tex_path or project.root_file, project=project)
+        cited_keys = {citation.key for citation in stats.citations}
         selected_keys = cited_keys if selected_keys is None else selected_keys & cited_keys
 
     filtered = entries
@@ -163,6 +177,51 @@ def _estimate_verify_total(
         filtered = [entry for entry in filtered if entry.key in selected_keys]
     filtered = [entry for entry in filtered if entry.fields.get("title") or entry.fields.get("doi")]
     return len(filtered)
+
+
+def _resolve_existing_path(path: Path, *, project_dir: Path | None = None) -> Path:
+    candidates = [path]
+    if project_dir is not None and not path.is_absolute():
+        candidates.insert(0, project_dir / path)
+    for candidate in candidates:
+        expanded = candidate.expanduser()
+        if expanded.exists():
+            return expanded.resolve()
+    return candidates[0].expanduser().resolve()
+
+
+def _resolve_optional_file(
+    path: Path | None,
+    *,
+    project_dir: Path | None = None,
+    must_exist: bool = True,
+) -> Path | None:
+    if path is None:
+        return None
+    resolved = _resolve_existing_path(path, project_dir=project_dir)
+    if must_exist and not resolved.exists():
+        raise click.ClickException(f"Path does not exist: {path}")
+    return resolved
+
+
+def _resolve_project_arg(
+    path: Path,
+    *,
+    project_dir: Path | None = None,
+) -> TexProject:
+    resolved_input = _resolve_optional_file(path, project_dir=project_dir)
+    assert resolved_input is not None
+    try:
+        return resolve_project(resolved_input)
+    except (FileNotFoundError, MultipleMainFilesError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def _resolve_project_root_only(project_dir: Path) -> TexProject:
+    try:
+        return resolve_project(project_dir)
+    except (FileNotFoundError, MultipleMainFilesError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
 
 
 def _load_queries_payload(
@@ -796,26 +855,38 @@ def cite(
 )
 @click.option(
     "--bib",
-    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    type=click.Path(dir_okay=False, path_type=Path),
     default=None,
     help="Explicit .bib file path. If omitted, infer from \\bibliography{}.",
 )
+@click.option(
+    "--project-dir",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    default=None,
+    help="Explicit LaTeX project root directory.",
+)
 @click.argument(
     "path",
-    type=click.Path(exists=True, path_type=Path),
+    type=click.Path(path_type=Path),
 )
 def lint(
     stats_mode: bool,
     rules: str | None,
     bib: Path | None,
+    project_dir: Path | None,
     path: Path,
 ) -> None:
     """Extract and report LaTeX structure lint issues."""
     selected_rules = _parse_rules_option(rules)
+    resolved_project_dir = project_dir.resolve() if project_dir is not None else None
+    project = _resolve_project_arg(path, project_dir=resolved_project_dir)
+    resolved_bib = _resolve_optional_file(bib, project_dir=project.project_dir, must_exist=True)
     stats = extract_stats(
-        path.as_posix(),
-        bib_paths=[bib.as_posix()] if bib is not None else None,
+        project.root_file,
+        bib_path=resolved_bib,
+        project=project,
     )
+    show_file = stats.project is not None
 
     if stats_mode:
         click.echo(stats.to_json(selected_rules), nl=False)
@@ -824,7 +895,7 @@ def lint(
     issues = stats.filtered_issues(selected_rules)
     if issues:
         for issue in issues:
-            click.echo(_format_lint_issue(issue))
+            click.echo(_format_lint_issue(issue, show_file=show_file))
     else:
         click.echo("No issues found.")
 
@@ -845,9 +916,15 @@ def lint(
 )
 @click.option(
     "--tex",
-    type=click.Path(exists=True, path_type=Path),
+    type=click.Path(path_type=Path),
     default=None,
     help="Optional .tex file or directory. Only verify cited keys from this path.",
+)
+@click.option(
+    "--project-dir",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    default=None,
+    help="Explicit LaTeX project root directory. Auto-discovers main .tex and .bib files.",
 )
 @click.option(
     "--output",
@@ -863,18 +940,40 @@ def lint(
 )
 @click.argument(
     "bib",
-    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    type=click.Path(dir_okay=False, path_type=Path),
+    required=False,
 )
 def verify(
     stats_mode: bool,
     tex: Path | None,
+    project_dir: Path | None,
     output: Path | None,
     keys: str | None,
-    bib: Path,
+    bib: Path | None,
 ) -> None:
     """Verify citation metadata in a BibTeX file."""
     selected_keys = _parse_keys_option(keys)
-    total_to_verify = _estimate_verify_total(bib, tex, selected_keys)
+    resolved_project_dir = project_dir.resolve() if project_dir is not None else None
+    resolved_tex = _resolve_optional_file(tex, project_dir=resolved_project_dir, must_exist=True)
+    project = None
+    if resolved_tex is not None:
+        project = _resolve_project_arg(resolved_tex)
+    elif resolved_project_dir is not None:
+        project = _resolve_project_root_only(resolved_project_dir)
+
+    bib_base_dir = project.project_dir if project is not None else resolved_project_dir
+    resolved_bib = _resolve_optional_file(bib, project_dir=bib_base_dir, must_exist=True)
+    discovered_bib_paths = [] if resolved_bib is not None else (list(project.bib_files) if project is not None else [])
+    if resolved_bib is None and not discovered_bib_paths:
+        raise click.ClickException("Provide a .bib path or a LaTeX project with discoverable bibliography files.")
+
+    total_to_verify = _estimate_verify_total(
+        resolved_bib,
+        discovered_bib_paths if resolved_bib is None else None,
+        resolved_tex,
+        project,
+        selected_keys,
+    )
     progress_state = {"count": 0}
 
     def progress_callback(result: object) -> None:
@@ -900,10 +999,15 @@ def verify(
         )
 
     click.echo(f"Verifying {total_to_verify} entries...", err=True)
+    tex_argument = None
+    if tex is not None:
+        tex_argument = tex.as_posix() if resolved_project_dir is None else resolved_tex.as_posix()
     report = asyncio.run(
         verify_bib(
-            bib.as_posix(),
-            tex_path=tex.as_posix() if tex is not None else None,
+            resolved_bib.as_posix() if resolved_bib is not None else None,
+            bib_paths=[path.as_posix() for path in discovered_bib_paths] if resolved_bib is None else None,
+            tex_path=tex_argument,
+            project=project,
             keys=selected_keys,
             progress_callback=progress_callback,
         )

@@ -7,8 +7,8 @@
 - **三源并行检索**：Semantic Scholar + OpenAlex + arXiv 同时搜索
 - **自动去重 & 交叉验证**：DOI / 标题+作者 双重匹配，标记 verified / single-source / suspicious
 - **筛选分类引擎**：按自定义规则对候选池分类，输出结构化分析报告
-- **LaTeX 结构检查**：静态提取 label / ref / float / BibTeX 统计，支持结构 lint 和自动修复
-- **写作维护工具**：支持引用验证、英文润色和中英双语同步维护
+- **LaTeX 结构检查**：静态提取 label / ref / float / BibTeX 统计，支持单文件和多文件项目 lint
+- **写作维护工具**：支持多文件 LaTeX 项目的引用验证、英文润色和中英双语同步维护
 - **结构化输出**：Markdown 报告 + BibTeX 引用 + JSON 元数据
 - **Skill 驱动**：通过 `/hypo-survey` 等命令直接调用，Agent 自动完成全流程
 
@@ -271,6 +271,15 @@ Agent 会逐篇标注类别，输出：
 # Human-readable lint report
 uv run hypo-research lint paper.tex
 
+# Auto-detect a multi-file project from the root file
+uv run hypo-research lint main.tex
+
+# Start from a subfile and resolve the project root automatically
+uv run hypo-research lint sections/intro.tex
+
+# Explicit project root when the CLI path is relative to the paper directory
+uv run hypo-research lint --project-dir ./paper main.tex
+
 # JSON stats for Agent consumption
 uv run hypo-research lint --stats paper.tex
 
@@ -292,6 +301,10 @@ uv run hypo-research verify --stats refs.bib
 
 # Only verify entries actually cited in .tex
 uv run hypo-research verify --tex paper.tex refs.bib
+
+# Auto-discover .bib files from a multi-file LaTeX project
+uv run hypo-research verify --tex main.tex
+uv run hypo-research verify --project-dir ./paper
 
 # Verify specific keys
 uv run hypo-research verify --keys craterlake2022,f1_2021 refs.bib

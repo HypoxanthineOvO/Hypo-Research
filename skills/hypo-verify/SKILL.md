@@ -20,6 +20,7 @@ license: MIT
 $ARGUMENTS
 - bib: `.bib` 文件路径（必填）
 - tex: `.tex` 文件或目录（可选，只验证被引用的条目）
+- project_dir: 显式项目根目录（可选，可自动发现主文件和 `.bib`）
 - keys: 只验证指定 cite key（可选，逗号分隔）
 - fix: 是否自动修复可修复项（可选，布尔值）
 
@@ -35,6 +36,13 @@ uv run hypo-research verify --stats <bib>
 
 ```bash
 uv run hypo-research verify --stats <bib> --tex <tex> --keys <keys>
+```
+
+多文件项目可自动发现 `.bib`：
+
+```bash
+uv run hypo-research verify --stats --tex main.tex
+uv run hypo-research verify --stats --project-dir ./paper
 ```
 
 2. 解析 JSON 中的 `results`：
