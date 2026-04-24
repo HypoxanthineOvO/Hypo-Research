@@ -1,28 +1,20 @@
 {
-  "$schema": "https://json.schemastore.org/claude-code-plugin-marketplace.json",
-  "name": "hypoxanthineovo-hypo-research",
-  "version": "0.4.0",
-  "description": "Academic research toolkit for survey, screening, citation expansion, LaTeX lint/fix, bibliography verification, polishing, translation, and one-command checks.",
+  "name": "hypo-research",
   "owner": {
-    "name": "HypoxanthineOvO",
-    "email": "noreply@github.com"
+    "name": "Hypoxanthine",
+    "email": "hyx021203@163.com"
   },
   "plugins": [
     {
       "name": "hypo-research",
-      "description": "Academic research assistant skill pack with 9 skills for literature discovery and paper writing workflows.",
-      "source": {
-        "type": "local",
-        "path": "./plugins/hypo-research"
+      "description": "学术科研辅助工具链 — 文献调研 / 筛选 / 引文遍历 / LaTeX lint & fix / 引用验证 / 润色 / 翻译 / 一键检查",
+      "version": "0.4.0",
+      "author": {
+        "name": "Hypoxanthine",
+        "email": "hyx021203@163.com"
       },
-      "author": "HypoxanthineOvO",
-      "homepage": "https://github.com/HypoxanthineOvO/Hypo-Research",
-      "tags": [
-        "research",
-        "latex",
-        "bibliography",
-        "writing"
-      ]
+      "source": "./plugins/hypo-research",
+      "category": "productivity"
     }
   ]
 }
