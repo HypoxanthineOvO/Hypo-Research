@@ -7,3 +7,4 @@ disabled_rules = ["L09"]
 
 [verify]
 timeout = 60
+max_requests_per_second = 1.0

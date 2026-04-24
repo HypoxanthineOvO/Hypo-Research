@@ -249,7 +249,7 @@ def _parse_keys_option(raw_value: str | None) -> list[str] | None:
 
 def _verify_exit_code(report: VerifyReport) -> int:
     """Return verify exit code based on high-severity verification outcomes."""
-    return 1 if report.not_found > 0 or report.error > 0 else 0
+    return 1 if report.mismatch > 0 or report.not_found > 0 or report.error > 0 else 0
 
 
 def _estimate_verify_total(
@@ -283,7 +283,6 @@ def _estimate_verify_total(
     if skip_keys:
         skip_key_set = {key for key in skip_keys}
         filtered = [entry for entry in filtered if entry.key not in skip_key_set]
-    filtered = [entry for entry in filtered if entry.fields.get("title") or entry.fields.get("doi")]
     return len(filtered)
 
 
@@ -1356,6 +1355,12 @@ def verify(
         elif status == "not_found":
             suffix = "not found"
             icon = "❌"
+        elif status == "uncertain":
+            suffix = getattr(result, "notes", None) or "uncertain"
+            icon = "❓"
+        elif status == "rate_limited":
+            suffix = getattr(result, "notes", None) or "rate limited"
+            icon = "⏳"
         else:
             suffix = getattr(result, "notes", None) or "error"
             icon = "💥"
@@ -1379,6 +1384,7 @@ def verify(
             timeout=config.verify.timeout,
             skip_keys=config.verify.skip_keys,
             max_concurrent=config.verify.max_concurrent,
+            max_requests_per_second=config.verify.max_requests_per_second,
             progress_callback=progress_callback,
         )
     )

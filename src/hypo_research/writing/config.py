@@ -17,7 +17,7 @@ _DOCUMENTCLASS_RE = re.compile(r"\\documentclass(?:\[[^\]]*\])?\{[^}]+\}")
 _SECTION_FIELDS = {
     "project": {"main_file", "bib_files", "src_dir"},
     "lint": {"disabled_rules", "enabled_rules", "fix_rules", "severity_overrides"},
-    "verify": {"s2_api_key", "timeout", "skip_keys", "max_concurrent"},
+    "verify": {"s2_api_key", "timeout", "skip_keys", "max_concurrent", "max_requests_per_second"},
     "translate": {"target_lang", "glossary"},
     "survey": {"default_topic", "max_results", "sources"},
 }
@@ -49,7 +49,8 @@ class VerifyConfig:
     s2_api_key: str | None = None
     timeout: int = 30
     skip_keys: list[str] = field(default_factory=list)
-    max_concurrent: int = 5
+    max_concurrent: int = 1
+    max_requests_per_second: float = 1.0
 
 
 @dataclass
@@ -133,7 +134,8 @@ def load_config_from_file(config_path: str | Path) -> HypoConfig:
         s2_api_key=verify_key or os.getenv("S2_API_KEY"),
         timeout=_coerce_int(verify_data.get("timeout"), 30),
         skip_keys=_coerce_str_list(verify_data.get("skip_keys")),
-        max_concurrent=_coerce_int(verify_data.get("max_concurrent"), 5),
+        max_concurrent=_coerce_int(verify_data.get("max_concurrent"), 1),
+        max_requests_per_second=_coerce_float(verify_data.get("max_requests_per_second"), 1.0),
     )
     config.translate = TranslateConfig(
         target_lang=_coerce_optional_str(translate_data.get("target_lang")) or "zh",
@@ -173,6 +175,8 @@ def merge_cli_args(config: HypoConfig, cli_args: dict[str, Any]) -> HypoConfig:
             merged.verify.skip_keys = [str(item) for item in value]
         elif key == "max_concurrent":
             merged.verify.max_concurrent = int(value)
+        elif key == "max_requests_per_second":
+            merged.verify.max_requests_per_second = float(value)
         elif key == "target_lang":
             merged.translate.target_lang = str(value)
         elif key == "glossary":
@@ -219,7 +223,8 @@ fix_rules = []
 # s2_api_key = "your-key-here"
 timeout = 30
 skip_keys = []
-max_concurrent = 5
+max_concurrent = 1
+max_requests_per_second = 1.0
 
 [translate]
 target_lang = "zh"
@@ -314,6 +319,16 @@ def _coerce_int(value: Any, default: int) -> int:
         return default
     try:
         return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _coerce_float(value: Any, default: float) -> float:
+    """Convert config values to floats with fallback."""
+    if value is None:
+        return default
+    try:
+        return float(value)
     except (TypeError, ValueError):
         return default
 

@@ -47,6 +47,7 @@ def test_verify_uses_config_timeout(monkeypatch, tmp_path) -> None:
     async def fake_verify_bib(*args, **kwargs):
         seen["timeout"] = kwargs.get("timeout")
         seen["skip_keys"] = kwargs.get("skip_keys")
+        seen["max_requests_per_second"] = kwargs.get("max_requests_per_second")
         from hypo_research.writing.verify import VerifyReport
 
         return VerifyReport(
@@ -54,6 +55,8 @@ def test_verify_uses_config_timeout(monkeypatch, tmp_path) -> None:
             verified=0,
             mismatch=0,
             not_found=0,
+            uncertain=0,
+            rate_limited=0,
             error=0,
             results=[],
             skipped=[],
@@ -72,6 +75,7 @@ def test_verify_uses_config_timeout(monkeypatch, tmp_path) -> None:
     assert result.exit_code == 0
     assert seen["timeout"] == 60
     assert seen["skip_keys"] == ["draft2025"]
+    assert seen["max_requests_per_second"] == 1.0
 
 
 def test_config_project_main_file(tmp_path) -> None:

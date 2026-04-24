@@ -7,14 +7,14 @@ import json
 from click.testing import CliRunner
 
 from hypo_research.cli import main
-from hypo_research.writing.verify import VerificationResult, VerifyReport
+from hypo_research.writing.verify import VerificationResult, VerifyReport, VerifyStatus
 
 
 def _sample_report(*, not_found: bool = False) -> VerifyReport:
     results = [
         VerificationResult(
             bib_key="cinnamon2025",
-            status="verified",
+            status=VerifyStatus.VERIFIED,
             local_title="Cinnamon: A Large-Scale Hardware Accelerator for Fully Homomorphic Encryption",
             local_year="2025",
             local_doi="10.1145/3582016.3582066",
@@ -36,7 +36,7 @@ def _sample_report(*, not_found: bool = False) -> VerifyReport:
         results.append(
             VerificationResult(
                 bib_key="fakepaper2024",
-                status="not_found",
+                status=VerifyStatus.NOT_FOUND,
                 local_title="A Completely Fabricated Paper That Does Not Exist",
                 local_year="2024",
                 local_doi="10.9999/fake.2024.000",
@@ -56,10 +56,12 @@ def _sample_report(*, not_found: bool = False) -> VerifyReport:
         )
     return VerifyReport(
         total=len(results),
-        verified=sum(1 for result in results if result.status == "verified"),
-        mismatch=sum(1 for result in results if result.status == "mismatch"),
-        not_found=sum(1 for result in results if result.status == "not_found"),
-        error=sum(1 for result in results if result.status == "error"),
+        verified=sum(1 for result in results if result.status == VerifyStatus.VERIFIED),
+        mismatch=sum(1 for result in results if result.status == VerifyStatus.MISMATCH),
+        not_found=sum(1 for result in results if result.status == VerifyStatus.NOT_FOUND),
+        uncertain=sum(1 for result in results if result.status == VerifyStatus.UNCERTAIN),
+        rate_limited=sum(1 for result in results if result.status == VerifyStatus.RATE_LIMITED),
+        error=sum(1 for result in results if result.status == VerifyStatus.ERROR),
         results=results,
         skipped=[],
     )

@@ -18,7 +18,10 @@ _BEGIN_RE = re.compile(r"\\begin\{(?P<name>[^}]+)\}(?P<placement>\[[^\]]*\])?")
 _END_RE = re.compile(r"\\end\{(?P<name>[^}]+)\}")
 _LABEL_RE = re.compile(r"\\label\{(?P<label>[^}]+)\}")
 _CAPTION_RE = re.compile(r"\\caption(?:\[[^\]]*\])?\{")
-_REF_RE = re.compile(r"\\(?P<kind>ref|cref|autoref)\{(?P<targets>[^}]+)\}")
+_REF_RE = re.compile(
+    r"\\(?P<kind>ref|cref|Cref|autoref|eqref|pageref|nameref|vref)\{(?P<targets>[^}]+)\}"
+)
+_HYPERREF_RE = re.compile(r"\\(?P<kind>hyperref)\[(?P<targets>[^\]]+)\]\{(?P<text>[^}]*)\}")
 _CITE_RE = re.compile(r"\\cite\{(?P<targets>[^}]+)\}")
 _BIBLIOGRAPHY_RE = re.compile(r"\\bibliography\{(?P<targets>[^}]+)\}")
 _ADDBIBRESOURCE_RE = re.compile(r"\\addbibresource\{(?P<target>[^}]+)\}")
@@ -73,6 +76,32 @@ _SENTENCE_PLACEHOLDERS = {
     "e.g.": "e<DOT>g<DOT>",
     "vs.": "vs<DOT>",
     "etc.": "etc<DOT>",
+}
+DEFAULT_LABEL_PREFIXES = {
+    "figure": "fig",
+    "table": "tab",
+    "section": "sec",
+    "subsection": "sec",
+    "chapter": "ch",
+    "equation": "eq",
+    "algorithm": "alg",
+    "listing": "lst",
+    "appendix": "app",
+    "theorem": "thm",
+    "lemma": "lem",
+    "definition": "def",
+    "proposition": "prop",
+    "corollary": "cor",
+    "remark": "rem",
+    "example": "ex",
+}
+_VALID_LABEL_PREFIXES = {f"{prefix}:" for prefix in DEFAULT_LABEL_PREFIXES.values()}
+_BILINGUAL_EXCLUDED_ENVIRONMENTS = {
+    "tblr",
+    "tabular",
+    "longtblr",
+    "IEEEbiography",
+    "IEEEbiographynophoto",
 }
 
 
@@ -520,7 +549,7 @@ def extract_stats(
                                 has_tilde=has_tilde,
                             )
                         )
-                    if ref_kind == "cref" and requires_tilde and not has_tilde:
+                    if ref_kind in {"cref", "Cref"} and requires_tilde and not has_tilde:
                         tilde_issues.append(
                             TildeIssue(
                                 issue_type="cref",
@@ -918,25 +947,34 @@ def _build_paragraph_pairs(
     line_index = 0
     pending_comment_lines: list[str] = []
     pending_comment_start = 0
+    excluded_env_depth = 0
 
     while line_index < len(raw_lines):
         line_number = line_index + 1
         raw_line = raw_lines[line_index]
         stripped = raw_line.strip()
+        code_line = _strip_comments(raw_line).strip()
+        begin_match = _BEGIN_RE.match(code_line)
+        end_match = _END_RE.match(code_line)
+
+        if excluded_env_depth > 0:
+            if end_match and end_match.group("name") in _BILINGUAL_EXCLUDED_ENVIRONMENTS:
+                excluded_env_depth = max(excluded_env_depth - 1, 0)
+            pending_comment_lines = []
+            pending_comment_start = 0
+            line_index += 1
+            continue
+
+        if begin_match and begin_match.group("name") in _BILINGUAL_EXCLUDED_ENVIRONMENTS:
+            excluded_env_depth += 1
+            pending_comment_lines = []
+            pending_comment_start = 0
+            line_index += 1
+            continue
+
         if not stripped:
-            if pending_comment_lines:
-                orphans.append(
-                    OrphanParagraph(
-                        line_start=pending_comment_start,
-                        line_end=line_number,
-                        text="\n".join(pending_comment_lines),
-                        type="missing_english",
-                        section=_section_for_line(sections, pending_comment_start),
-                        file=file,
-                    )
-                )
-                pending_comment_lines = []
-                pending_comment_start = 0
+            pending_comment_lines = []
+            pending_comment_start = 0
             line_index += 1
             continue
 
@@ -948,19 +986,8 @@ def _build_paragraph_pairs(
             continue
 
         if _is_ignorable_paragraph_line(raw_line):
-            if pending_comment_lines:
-                orphans.append(
-                    OrphanParagraph(
-                        line_start=pending_comment_start,
-                        line_end=line_number,
-                        text="\n".join(pending_comment_lines),
-                        type="missing_english",
-                        section=_section_for_line(sections, pending_comment_start),
-                        file=file,
-                    )
-                )
-                pending_comment_lines = []
-                pending_comment_start = 0
+            pending_comment_lines = []
+            pending_comment_start = 0
             line_index += 1
             continue
 
@@ -1003,18 +1030,6 @@ def _build_paragraph_pairs(
                     file=file,
                 )
             )
-
-    if pending_comment_lines:
-        orphans.append(
-            OrphanParagraph(
-                line_start=pending_comment_start,
-                line_end=len(raw_lines),
-                text="\n".join(pending_comment_lines),
-                type="missing_english",
-                section=_section_for_line(sections, pending_comment_start),
-                file=file,
-            )
-        )
 
     return pairs, orphans
 
@@ -1117,10 +1132,15 @@ def _is_ignorable_paragraph_line(raw_line: str) -> bool:
         "\\label",
         "\\caption",
         "\\bibliography",
+        "\\bibliographystyle",
         "\\addbibresource",
         "\\begin",
         "\\end",
         "\\centering",
+        "\\includegraphics",
+        "\\input",
+        "\\include",
+        "\\IEEEbiography",
     )
     return code_line.startswith(ignorable_prefixes)
 
@@ -1132,6 +1152,8 @@ def _line_command_events(code_line: str) -> list[tuple[str, re.Match[str]]]:
     for match in _LABEL_RE.finditer(code_line):
         events.append(("label", match))
     for match in _REF_RE.finditer(code_line):
+        events.append(("ref", match))
+    for match in _HYPERREF_RE.finditer(code_line):
         events.append(("ref", match))
     for match in _CITE_RE.finditer(code_line):
         events.append(("cite", match))
@@ -1150,18 +1172,38 @@ def _infer_label_environment(
     current_section_env: str,
 ) -> tuple[str, str]:
     for _, base_env, _ in reversed(env_stack):
-        if base_env == "figure":
-            return "figure", "fig:"
-        if base_env == "table":
-            return "table", "tab:"
-        if base_env == "equation":
-            return "equation", "eq:"
+        if base_env in {
+            "figure",
+            "table",
+            "equation",
+            "algorithm",
+            "algorithm2e",
+            "listing",
+            "lstlisting",
+            "theorem",
+            "lemma",
+            "definition",
+            "proposition",
+            "corollary",
+            "remark",
+            "example",
+        }:
+            if base_env == "lstlisting":
+                normalized_env = "listing"
+            elif base_env == "algorithm2e":
+                normalized_env = "algorithm"
+            else:
+                normalized_env = base_env
+            prefix = DEFAULT_LABEL_PREFIXES.get(normalized_env, "")
+            return normalized_env, f"{prefix}:" if prefix else ""
     if current_section_env == "section":
         return "section", "sec:"
     return "other", ""
 
 
 def _has_expected_prefix(label_name: str, suggested_prefix: str) -> bool:
+    if any(label_name.startswith(prefix) for prefix in _VALID_LABEL_PREFIXES):
+        return True
     if not suggested_prefix:
         return True
     return label_name.startswith(suggested_prefix)

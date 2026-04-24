@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import os
 from collections.abc import Callable
 from typing import Any
@@ -32,9 +33,14 @@ class SemanticScholarSource(BaseSource):
     )
     MAX_PAGE_SIZE = 100
     RELATIONSHIP_PAGE_SIZE = 1000
-    MAX_RETRIES = 3
+    MAX_RETRIES = 2
 
-    def __init__(self, api_key: str | None = None, timeout: float = 30.0):
+    def __init__(
+        self,
+        api_key: str | None = None,
+        timeout: float = 30.0,
+        max_requests_per_second: float | None = None,
+    ):
         self.api_key = api_key or os.environ.get("SEMANTIC_SCHOLAR_API_KEY")
         self.headers = {
             "Accept": "application/json",
@@ -48,9 +54,12 @@ class SemanticScholarSource(BaseSource):
             headers=self.headers,
             timeout=timeout,
         )
+        effective_rps = max_requests_per_second or (10.0 if self.api_key else 1.0)
+        max_tokens = max(1, math.ceil(effective_rps))
+        refill_period = max_tokens / max(effective_rps, 0.001)
         self.rate_limiter = RateLimiter(
-            max_tokens=10 if self.api_key else 1,
-            refill_period=1.0,
+            max_tokens=max_tokens,
+            refill_period=refill_period,
             name="semantic_scholar",
         )
         self._limiter = self.rate_limiter
@@ -220,7 +229,7 @@ class SemanticScholarSource(BaseSource):
                         "rate limit exceeded and retries exhausted",
                         status_code=429,
                     )
-                retry_after = self._parse_retry_after(response)
+                retry_after = float(2 ** (retries + 1))
                 retries += 1
                 logger.warning(
                     "[%s] rate limited, retrying in %.2fs (%s/%s)",
@@ -298,14 +307,6 @@ class SemanticScholarSource(BaseSource):
             verification=verification,
             raw_response=dict(payload),
         )
-
-    @staticmethod
-    def _parse_retry_after(response: httpx.Response) -> float:
-        raw_value = response.headers.get("Retry-After", "1")
-        try:
-            return max(float(raw_value), 0.0)
-        except ValueError:
-            return 1.0
 
     @staticmethod
     def _extract_error_message(response: httpx.Response) -> str:

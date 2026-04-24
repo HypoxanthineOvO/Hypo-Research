@@ -15,6 +15,7 @@ s2_api_key = "test-key-123"
 timeout = 30
 skip_keys = ["draft2025"]
 max_concurrent = 3
+max_requests_per_second = 0.5
 
 [translate]
 target_lang = "zh"

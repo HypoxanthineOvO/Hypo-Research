@@ -10,7 +10,7 @@ import httpx
 import pytest
 import respx
 
-from hypo_research.writing.verify import title_similarity, verify_bib
+from hypo_research.writing.verify import VerifyStatus, title_similarity, verify_bib
 
 
 S2_CINNAMON = {
@@ -240,6 +240,211 @@ async def test_verify_report_markdown_output() -> None:
     assert "# Citation Verification Report" in markdown
     assert "| Status | Count |" in markdown
     assert "### ⚠️ Mismatch: f1wrong" in markdown
+    assert "| ⏳ Rate Limited | 0 |" in markdown
+
+
+def test_verify_status_enum_values() -> None:
+    assert VerifyStatus.VERIFIED == "verified"
+    assert VerifyStatus.MISMATCH == "mismatch"
+    assert VerifyStatus.NOT_FOUND == "not_found"
+    assert VerifyStatus.UNCERTAIN == "uncertain"
+    assert VerifyStatus.RATE_LIMITED == "rate_limited"
+    assert VerifyStatus.ERROR == "error"
+    assert VerifyStatus.SKIPPED == "skipped"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_verify_rate_limited_then_success(tmp_path) -> None:
+    bib = tmp_path / "rate_limit.bib"
+    bib.write_text(
+        """@article{cinnamon2025,
+  title={Cinnamon: A Large-Scale Hardware Accelerator for Fully Homomorphic Encryption},
+  author={Samardzic, Nikola and others},
+  journal={ASPLOS},
+  year={2025},
+  doi={10.1145/3582016.3582066}
+}
+""",
+        encoding="utf-8",
+    )
+    respx.get("https://api.semanticscholar.org/graph/v1/paper/DOI:10.1145/3582016.3582066").mock(
+        side_effect=[
+            httpx.Response(429, json={"error": "rate limit"}),
+            httpx.Response(429, json={"error": "rate limit"}),
+            httpx.Response(200, json=S2_CINNAMON),
+        ]
+    )
+    respx.get("https://api.openalex.org/works/https://doi.org/10.1145/3582016.3582066").mock(
+        return_value=httpx.Response(404, json={"error": "Not found"})
+    )
+    report = await verify_bib(bib, keys=["cinnamon2025"])
+    assert report.results[0].status == VerifyStatus.VERIFIED
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_verify_rate_limited_exhausted(tmp_path) -> None:
+    bib = tmp_path / "rate_limit.bib"
+    bib.write_text(
+        """@article{cinnamon2025,
+  title={Cinnamon: A Large-Scale Hardware Accelerator for Fully Homomorphic Encryption},
+  author={Samardzic, Nikola and others},
+  journal={ASPLOS},
+  year={2025},
+  doi={10.1145/3582016.3582066}
+}
+""",
+        encoding="utf-8",
+    )
+    respx.get("https://api.semanticscholar.org/graph/v1/paper/DOI:10.1145/3582016.3582066").mock(
+        side_effect=[
+            httpx.Response(429, json={"error": "rate limit"}),
+            httpx.Response(429, json={"error": "rate limit"}),
+            httpx.Response(429, json={"error": "rate limit"}),
+        ]
+    )
+    respx.get("https://api.openalex.org/works/https://doi.org/10.1145/3582016.3582066").mock(
+        return_value=httpx.Response(404, json={"error": "Not found"})
+    )
+    report = await verify_bib(bib, keys=["cinnamon2025"])
+    assert report.results[0].status == VerifyStatus.RATE_LIMITED
+    assert report.rate_limited == 1
+    assert report.mismatch == 0
+    assert report.not_found == 0
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_verify_techreport_not_found_is_uncertain(tmp_path) -> None:
+    bib = tmp_path / "refs.bib"
+    bib.write_text(
+        """@techreport{draft2025,
+  title={A Technical Report Title},
+  author={Doe, Jane},
+  year={2025}
+}
+""",
+        encoding="utf-8",
+    )
+    respx.get("https://api.semanticscholar.org/graph/v1/paper/search").mock(
+        return_value=httpx.Response(200, json={"total": 0, "data": []})
+    )
+    respx.get("https://api.openalex.org/works").mock(
+        return_value=httpx.Response(200, json={"results": [], "meta": {"next_cursor": None}})
+    )
+    report = await verify_bib(bib, keys=["draft2025"])
+    assert report.results[0].status == VerifyStatus.UNCERTAIN
+    assert "techreport" in (report.results[0].notes or "")
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_verify_article_not_found_stays_not_found(tmp_path) -> None:
+    bib = tmp_path / "refs.bib"
+    bib.write_text(
+        """@article{ghost2024,
+  title={A Missing Indexed Paper},
+  author={Doe, Jane},
+  year={2024},
+  journal={Test Journal}
+}
+""",
+        encoding="utf-8",
+    )
+    respx.get("https://api.semanticscholar.org/graph/v1/paper/search").mock(
+        return_value=httpx.Response(200, json={"total": 0, "data": []})
+    )
+    respx.get("https://api.openalex.org/works").mock(
+        return_value=httpx.Response(200, json={"results": [], "meta": {"next_cursor": None}})
+    )
+    report = await verify_bib(bib, keys=["ghost2024"])
+    assert report.results[0].status == VerifyStatus.NOT_FOUND
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_verify_misc_not_found_is_uncertain(tmp_path) -> None:
+    bib = tmp_path / "refs.bib"
+    bib.write_text(
+        """@misc{misc2024,
+  title={A Misc Reference},
+  author={Doe, Jane},
+  year={2024}
+}
+""",
+        encoding="utf-8",
+    )
+    respx.get("https://api.semanticscholar.org/graph/v1/paper/search").mock(
+        return_value=httpx.Response(200, json={"total": 0, "data": []})
+    )
+    respx.get("https://api.openalex.org/works").mock(
+        return_value=httpx.Response(200, json={"results": [], "meta": {"next_cursor": None}})
+    )
+    report = await verify_bib(bib, keys=["misc2024"])
+    assert report.results[0].status == VerifyStatus.UNCERTAIN
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_verify_book_not_found_is_uncertain(tmp_path) -> None:
+    bib = tmp_path / "refs.bib"
+    bib.write_text(
+        """@book{book2024,
+  title={A Book Reference},
+  author={Doe, Jane},
+  year={2024},
+  publisher={Test Press}
+}
+""",
+        encoding="utf-8",
+    )
+    respx.get("https://api.semanticscholar.org/graph/v1/paper/search").mock(
+        return_value=httpx.Response(200, json={"total": 0, "data": []})
+    )
+    respx.get("https://api.openalex.org/works").mock(
+        return_value=httpx.Response(200, json={"results": [], "meta": {"next_cursor": None}})
+    )
+    report = await verify_bib(bib, keys=["book2024"])
+    assert report.results[0].status == VerifyStatus.UNCERTAIN
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_verify_unknown_type_with_metadata_is_uncertain(tmp_path) -> None:
+    bib = tmp_path / "refs.bib"
+    bib.write_text(
+        """@dataset{dataset2024,
+  title={A Dataset Reference},
+  author={Doe, Jane},
+  year={2024}
+}
+""",
+        encoding="utf-8",
+    )
+    respx.get("https://api.semanticscholar.org/graph/v1/paper/search").mock(
+        return_value=httpx.Response(200, json={"total": 0, "data": []})
+    )
+    respx.get("https://api.openalex.org/works").mock(
+        return_value=httpx.Response(200, json={"results": [], "meta": {"next_cursor": None}})
+    )
+    report = await verify_bib(bib, keys=["dataset2024"])
+    assert report.results[0].status == VerifyStatus.UNCERTAIN
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_verify_unknown_type_with_missing_metadata_is_not_found(tmp_path) -> None:
+    bib = tmp_path / "refs.bib"
+    bib.write_text(
+        """@dataset{dataset2024,
+  year={2024}
+}
+    """,
+        encoding="utf-8",
+    )
+    report = await verify_bib(bib, keys=["dataset2024"])
+    assert report.results[0].status == VerifyStatus.NOT_FOUND
 
 
 @pytest.mark.network

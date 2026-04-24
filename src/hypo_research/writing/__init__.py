@@ -35,6 +35,7 @@ from hypo_research.writing.stats import (
     extract_stats,
 )
 from hypo_research.writing.verify import VerificationResult, VerifyReport, title_similarity, verify_bib
+from hypo_research.writing.verify import VerifyStatus
 
 __all__ = [
     "BibEntryInfo",
@@ -56,6 +57,7 @@ __all__ = [
     "TexProject",
     "VerificationResult",
     "VerifyReport",
+    "VerifyStatus",
     "VerifyStageResult",
     "apply_fixes",
     "check_exit_code",

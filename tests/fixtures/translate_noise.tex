@@ -1,0 +1,26 @@
+\documentclass{article}
+\usepackage{graphicx}
+\usepackage{tabularray}
+\begin{document}
+
+\section{Introduction}
+
+% 正常双语配对
+Normal bilingual paragraph.
+
+% 这是中文草稿注释，不应触发 missing_english
+
+\includegraphics{figure.pdf}
+
+% 表格前的中文注释，也不应触发 missing_english
+\begin{tblr}{lc}
+A & B \\
+\end{tblr}
+
+This paragraph has no Chinese comment above it.
+
+\bibliography{refs}
+\bibliographystyle{IEEEtran}
+\IEEEbiography{Author}{Biography text.}
+
+\end{document}

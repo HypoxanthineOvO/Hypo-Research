@@ -23,6 +23,7 @@ def test_load_basic_config() -> None:
     assert config.project.bib_files == ["refs.bib"]
     assert config.lint.disabled_rules == ["L09"]
     assert config.verify.timeout == 60
+    assert config.verify.max_requests_per_second == 1.0
 
 
 def test_load_full_config() -> None:
@@ -35,6 +36,7 @@ def test_load_full_config() -> None:
     assert config.lint.severity_overrides == {"L05": "warning"}
     assert config.verify.s2_api_key == "test-key-123"
     assert config.verify.skip_keys == ["draft2025"]
+    assert config.verify.max_requests_per_second == 0.5
     assert config.translate.target_lang == "zh"
     assert config.translate.glossary["bootstrapping"] == "自举"
     assert config.survey.default_topic == "FHE accelerator"

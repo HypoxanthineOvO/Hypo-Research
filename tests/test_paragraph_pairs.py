@@ -27,11 +27,10 @@ def test_orphan_missing_chinese() -> None:
     assert any("no Chinese comment" in orphan.text for orphan in missing_cn)
 
 
-def test_orphan_missing_english() -> None:
+def test_comment_only_chinese_notes_are_ignored() -> None:
     stats = extract_stats("tests/fixtures/translate_sample.tex")
     missing_en = [orphan for orphan in stats.orphan_paragraphs if orphan.type == "missing_english"]
-    assert len(missing_en) >= 1
-    assert any("只有中文" in orphan.text for orphan in missing_en)
+    assert len(missing_en) == 0
 
 
 def test_paragraph_pairs_section_attribution() -> None:

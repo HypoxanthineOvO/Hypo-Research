@@ -36,6 +36,8 @@ class VerifyStageResult:
     verified: int = 0
     mismatch: int = 0
     not_found: int = 0
+    uncertain: int = 0
+    rate_limited: int = 0
     error: int = 0
     skipped: int = 0
 
@@ -177,7 +179,8 @@ def render_check_report(report: CheckReport) -> str:
             f"{report.verify.verified}/{report.verify.total_entries} verified"
             f" | mismatch: {report.verify.mismatch}"
             f" | not_found: {report.verify.not_found}"
-            f" | error: {report.verify.error}"
+            f" | uncertain: {report.verify.uncertain}"
+            f" | rate_limited: {report.verify.rate_limited}"
         )
     lines.append(
         "Stats: "
@@ -197,9 +200,7 @@ def check_exit_code(report: CheckReport, *, runtime_error: bool = False) -> int:
         return 2
     if report.lint.errors > 0:
         return 1
-    if report.verify is not None and (
-        report.verify.mismatch > 0 or report.verify.not_found > 0 or report.verify.error > 0
-    ):
+    if report.verify is not None and (report.verify.mismatch > 0 or report.verify.not_found > 0):
         return 1
     return 0
 
@@ -248,6 +249,7 @@ def _run_verify_stage(project, config: HypoConfig) -> VerifyStageResult | None:
                 timeout=config.verify.timeout,
                 skip_keys=config.verify.skip_keys,
                 max_concurrent=config.verify.max_concurrent,
+                max_requests_per_second=config.verify.max_requests_per_second,
             )
         )
     except Exception:
@@ -262,6 +264,8 @@ def _verify_stage_from_report(report: VerifyReport) -> VerifyStageResult:
         verified=report.verified,
         mismatch=report.mismatch,
         not_found=report.not_found,
+        uncertain=report.uncertain,
+        rate_limited=report.rate_limited,
         error=report.error,
         skipped=len(report.skipped),
     )
