@@ -2,10 +2,14 @@
 main_file = "paper.tex"
 bib_files = ["refs.bib", "extra.bib"]
 src_dir = "src"
+venue = "ieee_journal"
 
 [lint]
 disabled_rules = ["L09", "L10"]
 fix_rules = ["L01", "L04"]
+
+[lint.overrides]
+float_placement = "t"
 
 [lint.severity_overrides]
 L05 = "warning"
@@ -16,6 +20,7 @@ timeout = 30
 skip_keys = ["draft2025"]
 max_concurrent = 3
 max_requests_per_second = 0.5
+strict_doi = true
 
 [translate]
 target_lang = "zh"

@@ -15,7 +15,9 @@ from hypo_research.core.models import PaperResult, SearchParams
 from hypo_research.core.sources import OpenAlexSource, RateLimitError, SemanticScholarSource, SourceError
 from hypo_research.writing.bib_parser import BibEntryInfo, parse_bib, parse_bib_files
 from hypo_research.writing.project import TexProject
+from hypo_research.writing.severity import Severity
 from hypo_research.writing.stats import extract_stats
+from hypo_research.writing.venue import VenueProfile, get_venue
 
 
 logger = logging.getLogger(__name__)
@@ -70,6 +72,7 @@ class VerificationResult:
     mismatches: list[str]
     title_similarity: float | None
     notes: str | None
+    severity: Severity = Severity.INFO
 
 
 @dataclass
@@ -239,11 +242,14 @@ async def verify_bib(
     timeout: int = 30,
     max_concurrent: int | None = None,
     max_requests_per_second: float | None = None,
+    venue: VenueProfile | None = None,
+    strict_doi: bool = False,
     s2_source: SemanticScholarSource | None = None,
     openalex_source: OpenAlexSource | None = None,
     progress_callback: Any | None = None,
 ) -> VerifyReport:
     """Verify BibTeX entries against Semantic Scholar and OpenAlex."""
+    active_venue = venue or get_venue(None)
     resolved_bib_paths = _resolve_verify_bib_paths(
         bib_path=bib_path,
         bib_paths=bib_paths,
@@ -285,6 +291,11 @@ async def verify_bib(
     async def verify_single(entry: BibEntryInfo) -> VerificationResult:
         async with semaphore:
             result = await _verify_entry(entry, semantic_scholar, openalex)
+            result.severity = _severity_for_verify_result(
+                result,
+                venue=active_venue,
+                strict_doi=strict_doi,
+            )
             if progress_callback is not None:
                 progress_callback(result)
             return result
@@ -791,3 +802,23 @@ def _remote_candidate_score(
     similarity = title_similarity(local_title, candidate.title) if local_title else 0.0
     citation_count = candidate.citation_count or 0
     return (doi_match, similarity, citation_count)
+
+
+def _severity_for_verify_result(
+    result: VerificationResult,
+    *,
+    venue: VenueProfile,
+    strict_doi: bool,
+) -> Severity:
+    """Map verify result states to output severities."""
+    if result.status == VerifyStatus.MISMATCH:
+        return Severity.ERROR
+    if result.status == VerifyStatus.NOT_FOUND:
+        return Severity.WARNING
+    if result.status in {VerifyStatus.UNCERTAIN, VerifyStatus.RATE_LIMITED, VerifyStatus.ERROR}:
+        return Severity.UNCERTAIN
+    if (venue.warn_missing_doi or strict_doi) and not result.local_doi and result.remote_doi:
+        extra_note = "missing DOI in local bibliography"
+        result.notes = f"{result.notes}; {extra_note}" if result.notes else extra_note
+        return Severity.WARNING
+    return Severity.INFO

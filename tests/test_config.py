@@ -21,6 +21,7 @@ def test_load_basic_config() -> None:
     config = load_config_from_file("tests/fixtures/config/basic.toml")
     assert config.project.main_file == "main.tex"
     assert config.project.bib_files == ["refs.bib"]
+    assert config.project.venue == "generic"
     assert config.lint.disabled_rules == ["L09"]
     assert config.verify.timeout == 60
     assert config.verify.max_requests_per_second == 1.0
@@ -31,12 +32,15 @@ def test_load_full_config() -> None:
     assert config.project.main_file == "paper.tex"
     assert config.project.bib_files == ["refs.bib", "extra.bib"]
     assert config.project.src_dir == "src"
+    assert config.project.venue == "ieee_journal"
     assert config.lint.disabled_rules == ["L09", "L10"]
     assert config.lint.fix_rules == ["L01", "L04"]
+    assert config.lint.overrides == {"float_placement": "t"}
     assert config.lint.severity_overrides == {"L05": "warning"}
     assert config.verify.s2_api_key == "test-key-123"
     assert config.verify.skip_keys == ["draft2025"]
     assert config.verify.max_requests_per_second == 0.5
+    assert config.verify.strict_doi is True
     assert config.translate.target_lang == "zh"
     assert config.translate.glossary["bootstrapping"] == "自举"
     assert config.survey.default_topic == "FHE accelerator"
@@ -47,6 +51,7 @@ def test_load_empty_config() -> None:
     config = load_config_from_file("tests/fixtures/config/empty.toml")
     assert config.project.main_file is None
     assert config.project.bib_files == []
+    assert config.project.venue == "generic"
     assert config.lint.disabled_rules == []
     assert config.verify.timeout == 30
     assert config.translate.target_lang == "zh"
@@ -114,6 +119,7 @@ def test_generate_default_config() -> None:
     assert "[verify]" in content
     assert "[translate]" in content
     assert "[survey]" in content
+    assert 'venue = "generic"' in content
     import tomllib
 
     data = tomllib.loads(content)

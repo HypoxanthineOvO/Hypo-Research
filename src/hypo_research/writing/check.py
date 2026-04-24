@@ -8,12 +8,15 @@ import json
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from hypo_research.writing.config import HypoConfig, load_config
 from hypo_research.writing.fixer import apply_fixes, generate_fixes
 from hypo_research.writing.project import resolve_project
+from hypo_research.writing.severity import Severity, coerce_severity
 from hypo_research.writing.stats import TexStats, extract_stats
 from hypo_research.writing.verify import VerifyReport, verify_bib
+from hypo_research.writing.venue import VenueProfile, get_venue
 
 
 @dataclass
@@ -62,13 +65,35 @@ class CheckReport:
     project_dir: str = ""
     main_file: str = ""
     timestamp: str = ""
+    venue: str = "generic"
+    venue_display: str = "Generic LaTeX"
     lint: LintStageResult = field(default_factory=LintStageResult)
     verify: VerifyStageResult | None = None
     stats: StatsStageResult = field(default_factory=StatsStageResult)
+    issues: list[dict[str, Any]] = field(default_factory=list)
     report_path: str | None = None
 
     def to_payload(self) -> dict[str, object]:
         payload = asdict(self)
+        severity_counts = _severity_counts(self)
+        payload["summary"] = {
+            "errors": severity_counts["error"],
+            "warnings": severity_counts["warning"],
+            "info": severity_counts["info"],
+            "uncertain": severity_counts["uncertain"],
+        }
+        payload["verify_summary"] = (
+            {
+                "verified": self.verify.verified,
+                "mismatch": self.verify.mismatch,
+                "not_found": self.verify.not_found,
+                "uncertain": self.verify.uncertain,
+                "rate_limited": self.verify.rate_limited,
+            }
+            if self.verify is not None
+            else None
+        )
+        payload["submission_readiness"] = submission_readiness(self)
         return payload
 
     def to_json(self) -> str:
@@ -87,6 +112,7 @@ def run_check(
     verify: bool = True,
     rules: list[str] | None = None,
     save_report: bool = True,
+    venue: VenueProfile | None = None,
 ) -> CheckReport:
     """Run the writing-quality pipeline and aggregate results into a report."""
     input_path = Path(tex_path).expanduser()
@@ -94,8 +120,14 @@ def run_check(
         input_path = input_path.resolve()
 
     loaded_config = config or load_config(input_path.parent if input_path.exists() else Path.cwd())
+    venue_profile = venue or get_venue(loaded_config.project.venue)
     project = resolve_project(input_path, config=loaded_config)
-    initial_stats = extract_stats(project.root_file, project=project)
+    initial_stats = extract_stats(
+        project.root_file,
+        project=project,
+        venue=venue_profile,
+        strict_doi=loaded_config.verify.strict_doi,
+    )
     initial_display_stats = _apply_severity_overrides(initial_stats, loaded_config)
     selected_rules = _selected_lint_rules(loaded_config)
     initial_issues = initial_display_stats.filtered_issues(selected_rules)
@@ -117,7 +149,12 @@ def run_check(
         if not dry_run:
             fixes_applied = max(0, len(fix_report.fixes) - len(fix_report.errors))
             project = resolve_project(project.root_file, config=loaded_config)
-            final_stats = extract_stats(project.root_file, project=project)
+            final_stats = extract_stats(
+                project.root_file,
+                project=project,
+                venue=venue_profile,
+                strict_doi=loaded_config.verify.strict_doi,
+            )
         else:
             final_stats = initial_stats
     else:
@@ -125,12 +162,30 @@ def run_check(
 
     final_display_stats = _apply_severity_overrides(final_stats, loaded_config)
     final_issues = final_display_stats.filtered_issues(selected_rules)
-    verify_result = _run_verify_stage(project, loaded_config) if verify and project.bib_files else None
+    verify_result = (
+        _run_verify_stage(project, loaded_config, venue_profile)
+        if verify and project.bib_files
+        else None
+    )
+    final_issue_payload = [
+        {
+            "rule": issue.rule,
+            "severity": issue.severity.value,
+            "severity_source": issue.severity_source,
+            "file": issue.file,
+            "line": issue.line,
+            "message": issue.message,
+            "context": issue.context,
+        }
+        for issue in final_issues
+    ]
 
     report = CheckReport(
         project_dir=project.project_dir.as_posix(),
         main_file=_relative_to(project.root_file, project.project_dir),
         timestamp=datetime.now().astimezone().isoformat(),
+        venue=venue_profile.name,
+        venue_display=venue_profile.display_name,
         lint=LintStageResult(
             total_issues=len(final_issues),
             errors=sum(1 for issue in final_issues if issue.severity == "error"),
@@ -149,6 +204,7 @@ def run_check(
             total_citations=len(final_stats.citations),
             bib_entries=len(final_stats.bib_entries),
         ),
+        issues=final_issue_payload,
     )
 
     if save_report:
@@ -162,25 +218,44 @@ def render_check_report(report: CheckReport) -> str:
         "=== Hypo-Research Check Report ===",
         "",
         f"Project: {report.project_dir} ({report.main_file})",
-        "",
-        (
-            f"Lint: {report.lint.errors} errors, {report.lint.warnings} warnings"
-            f" | fixes applied: {report.lint.fixes_applied}"
-            f" | fixes available: {report.lint.fixes_available}"
-        ),
     ]
+    if report.venue != "generic":
+        lines.extend(["", f"Venue: {report.venue_display}"])
+    lines.extend(
+        [
+            "",
+            (
+                f"Lint: {report.lint.errors} errors, {report.lint.warnings} warnings"
+                f" | fixes applied: {report.lint.fixes_applied}"
+                f" | fixes available: {report.lint.fixes_available}"
+            ),
+        ]
+    )
+    if report.issues:
+        for issue in report.issues:
+            severity = issue["severity"]
+            severity_source = issue.get("severity_source") or ""
+            severity_label = f"{severity} ({severity_source})" if severity_source else severity
+            location = (
+                f"{issue['file']}:{issue['line']}"
+                if issue["file"]
+                else f"line {issue['line']}"
+            )
+            lines.append(f"[{issue['rule']}] {severity_label} {location} — {issue['message']}")
     if report.lint.rules_triggered:
         lines.append(f"Rules: {', '.join(report.lint.rules_triggered)}")
     if report.verify is None:
         lines.append("Verify: skipped")
     else:
-        lines.append(
-            "Verify: "
-            f"{report.verify.verified}/{report.verify.total_entries} verified"
-            f" | mismatch: {report.verify.mismatch}"
-            f" | not_found: {report.verify.not_found}"
-            f" | uncertain: {report.verify.uncertain}"
-            f" | rate_limited: {report.verify.rate_limited}"
+        lines.extend(
+            [
+                "Verify:",
+                f"  verified: {report.verify.verified}",
+                f"  mismatch: {report.verify.mismatch}",
+                f"  not_found: {report.verify.not_found}",
+                f"  uncertain: {report.verify.uncertain}",
+                f"  rate_limited: {report.verify.rate_limited}",
+            ]
         )
     lines.append(
         "Stats: "
@@ -188,6 +263,23 @@ def render_check_report(report: CheckReport) -> str:
         f"{report.stats.total_floats} floats, "
         f"{report.stats.total_labels} labels, "
         f"{report.stats.total_citations} citations"
+    )
+    lines.extend(
+        [
+            "",
+            "Bottom Line:",
+            f"  Errors: {_severity_counts(report)['error']}",
+            f"  Warnings: {_severity_counts(report)['warning']}",
+            f"  Info: {_severity_counts(report)['info']}",
+            f"  Uncertain: {_severity_counts(report)['uncertain']}",
+            (
+                f"  Verify: {report.verify.verified}/{report.verify.total_entries} verified, "
+                f"{report.verify.rate_limited} rate-limited"
+                if report.verify is not None
+                else "  Verify: skipped"
+            ),
+            f"  Submission readiness: {submission_readiness_label(report)}",
+        ]
     )
     if report.report_path is not None:
         lines.append(f"Report saved to: {report.report_path}")
@@ -198,11 +290,31 @@ def check_exit_code(report: CheckReport, *, runtime_error: bool = False) -> int:
     """Return CLI exit code for a completed check report."""
     if runtime_error:
         return 2
-    if report.lint.errors > 0:
+    if report.lint.errors > 0 or report.lint.warnings > 0:
         return 1
     if report.verify is not None and (report.verify.mismatch > 0 or report.verify.not_found > 0):
         return 1
     return 0
+
+
+def submission_readiness(report: CheckReport) -> str:
+    """Return machine-readable submission readiness state."""
+    counts = _severity_counts(report)
+    if counts["error"] > 0:
+        return "fail"
+    if counts["warning"] > 0:
+        return "review"
+    return "pass"
+
+
+def submission_readiness_label(report: CheckReport) -> str:
+    """Return a human-readable readiness summary."""
+    state = submission_readiness(report)
+    if state == "fail":
+        return f"❌ Blocking issues found for {report.venue_display}"
+    if state == "review":
+        return f"⚠️ Review recommended before submission to {report.venue_display}"
+    return f"✅ No blocking issues for {report.venue_display}"
 
 
 def _selected_lint_rules(config: HypoConfig) -> set[str] | None:
@@ -235,21 +347,28 @@ def _apply_severity_overrides(stats: TexStats, config: HypoConfig) -> TexStats:
     for issue in adjusted.issues:
         override = config.lint.severity_overrides.get(issue.rule)
         if override is not None:
-            issue.severity = override
+            issue.severity = coerce_severity(override)
+            issue.severity_source = "config"
     return adjusted
 
 
-def _run_verify_stage(project, config: HypoConfig) -> VerifyStageResult | None:
+def _run_verify_stage(
+    project,
+    config: HypoConfig,
+    venue: VenueProfile,
+) -> VerifyStageResult | None:
     try:
         report = asyncio.run(
             verify_bib(
                 project=project,
                 tex_path=project.root_file,
+                venue=venue,
                 s2_api_key=config.verify.s2_api_key,
                 timeout=config.verify.timeout,
                 skip_keys=config.verify.skip_keys,
                 max_concurrent=config.verify.max_concurrent,
                 max_requests_per_second=config.verify.max_requests_per_second,
+                strict_doi=config.verify.strict_doi,
             )
         )
     except Exception:
@@ -285,3 +404,18 @@ def _relative_to(path: Path, base: Path) -> str:
         return path.relative_to(base).as_posix()
     except ValueError:
         return path.as_posix()
+
+
+def _severity_counts(report: CheckReport) -> dict[str, int]:
+    """Aggregate lint and verify severities for reporting."""
+    counts = {
+        "error": sum(1 for issue in report.issues if issue.get("severity") == Severity.ERROR.value),
+        "warning": sum(1 for issue in report.issues if issue.get("severity") == Severity.WARNING.value),
+        "info": sum(1 for issue in report.issues if issue.get("severity") == Severity.INFO.value),
+        "uncertain": sum(1 for issue in report.issues if issue.get("severity") == Severity.UNCERTAIN.value),
+    }
+    if report.verify is not None:
+        counts["error"] += report.verify.mismatch
+        counts["warning"] += report.verify.not_found
+        counts["uncertain"] += report.verify.uncertain + report.verify.rate_limited + report.verify.error
+    return counts

@@ -45,7 +45,9 @@ from hypo_research.writing.config import (
 )
 from hypo_research.writing.fixer import FixReport, apply_fixes, generate_fixes
 from hypo_research.writing.project import MultipleMainFilesError, TexProject, resolve_project
+from hypo_research.writing.severity import Severity, coerce_severity
 from hypo_research.writing.stats import TexStats, extract_stats
+from hypo_research.writing.venue import VenueProfile, get_venue, list_venues
 from hypo_research.writing.verify import VerifyReport, verify_bib
 
 
@@ -84,6 +86,18 @@ def _load_command_config(
     if config.config_path is not None:
         click.echo(f"Loaded config from {config.config_path}", err=True)
     return config
+
+
+def _resolve_venue_profile(
+    *,
+    cli_venue: str | None,
+    config: HypoConfig,
+) -> VenueProfile:
+    venue_name = cli_venue or config.project.venue or "generic"
+    if venue_name not in list_venues():
+        choices = ", ".join(list_venues())
+        raise click.ClickException(f"Unknown venue '{venue_name}'. Available: {choices}")
+    return get_venue(venue_name)
 
 
 class OptionEatAll(click.Option):
@@ -182,9 +196,14 @@ def _format_lint_issue(issue: object, *, show_file: bool) -> str:
     file = getattr(issue, "file")
     line = getattr(issue, "line")
     message = getattr(issue, "message")
+    severity = getattr(issue, "severity")
+    severity_source = getattr(issue, "severity_source", "")
+    severity_text = str(severity)
+    if severity_source:
+        severity_text = f"{severity_text} ({severity_source})"
     if show_file and file:
-        return f"[{rule}] {file}:{line} — {message}"
-    return f"[{rule}] line {line} — {message}"
+        return f"[{rule}] {severity_text} {file}:{line} — {message}"
+    return f"[{rule}] {severity_text} line {line} — {message}"
 
 
 def _format_fix(fix: object, *, show_file: bool, applied: bool) -> str:
@@ -230,7 +249,8 @@ def _apply_severity_overrides(
     for issue in adjusted.issues:
         override = config.lint.severity_overrides.get(issue.rule)
         if override is not None:
-            issue.severity = override
+            issue.severity = coerce_severity(override)
+            issue.severity_source = "config"
     return adjusted
 
 
@@ -1033,6 +1053,12 @@ def cite(
     default=None,
     help="Explicit LaTeX project root directory.",
 )
+@click.option(
+    "--venue",
+    type=str,
+    default=None,
+    help="Venue profile name.",
+)
 @click.argument(
     "path",
     type=click.Path(path_type=Path),
@@ -1047,6 +1073,7 @@ def lint(
     rules: str | None,
     bib: Path | None,
     project_dir: Path | None,
+    venue: str | None,
     path: Path | None,
 ) -> None:
     """Extract and report LaTeX structure lint issues."""
@@ -1059,6 +1086,7 @@ def lint(
 
     config_start_dir = project_dir or (path.parent if path is not None else None)
     config = _load_command_config(start_dir=config_start_dir)
+    venue_profile = _resolve_venue_profile(cli_venue=venue, config=config)
     selected_rules = _resolve_lint_rules(
         cli_rules=_parse_rules_option(rules),
         config=config,
@@ -1085,6 +1113,8 @@ def lint(
         project.root_file,
         bib_path=resolved_bib,
         project=project,
+        venue=venue_profile,
+        strict_doi=config.verify.strict_doi,
     )
     display_stats = _apply_severity_overrides(stats, config)
     show_file = stats.project is not None
@@ -1174,6 +1204,12 @@ def lint(
     help="Explicit LaTeX project root directory.",
 )
 @click.option(
+    "--venue",
+    type=str,
+    default=None,
+    help="Venue profile name.",
+)
+@click.option(
     "--bib",
     type=click.Path(dir_okay=False, path_type=Path),
     default=None,
@@ -1205,6 +1241,7 @@ def check(
     no_verify: bool,
     rules: str | None,
     project_dir: Path | None,
+    venue: str | None,
     bib: Path | None,
     json_mode: bool,
     no_save: bool,
@@ -1216,6 +1253,7 @@ def check(
 
     config_start_dir = project_dir or path.parent
     config = _load_command_config(start_dir=config_start_dir)
+    venue_profile = _resolve_venue_profile(cli_venue=venue, config=config)
     resolved_project_dir = project_dir.resolve() if project_dir is not None else None
     resolved_path = _resolve_optional_file(path, project_dir=resolved_project_dir, must_exist=True)
     assert resolved_path is not None
@@ -1236,6 +1274,7 @@ def check(
             verify=not no_verify,
             rules=sorted(selected_fix_rules) if selected_fix_rules is not None else None,
             save_report=not no_save,
+            venue=venue_profile,
         )
     except Exception as exc:
         click.echo(str(exc), err=True)
@@ -1270,6 +1309,12 @@ def check(
     help="Explicit LaTeX project root directory. Auto-discovers main .tex and .bib files.",
 )
 @click.option(
+    "--venue",
+    type=str,
+    default=None,
+    help="Venue profile name.",
+)
+@click.option(
     "--output",
     type=click.Path(dir_okay=False, path_type=Path),
     default=None,
@@ -1291,6 +1336,7 @@ def verify(
     stats_mode: bool,
     tex: Path | None,
     project_dir: Path | None,
+    venue: str | None,
     output: Path | None,
     keys: str | None,
     bib: Path | None,
@@ -1298,6 +1344,7 @@ def verify(
     """Verify citation metadata in a BibTeX file."""
     config_start_dir = project_dir or tex or bib
     config = _load_command_config(start_dir=config_start_dir)
+    venue_profile = _resolve_venue_profile(cli_venue=venue, config=config)
     selected_keys = _parse_keys_option(keys)
     resolved_project_dir = project_dir.resolve() if project_dir is not None else None
     default_tex = None
@@ -1385,6 +1432,8 @@ def verify(
             skip_keys=config.verify.skip_keys,
             max_concurrent=config.verify.max_concurrent,
             max_requests_per_second=config.verify.max_requests_per_second,
+            venue=venue_profile,
+            strict_doi=config.verify.strict_doi,
             progress_callback=progress_callback,
         )
     )

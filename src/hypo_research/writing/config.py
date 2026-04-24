@@ -11,13 +11,14 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from hypo_research.writing.venue import list_venues
 
 CONFIG_FILENAME = ".hypo-research.toml"
 _DOCUMENTCLASS_RE = re.compile(r"\\documentclass(?:\[[^\]]*\])?\{[^}]+\}")
 _SECTION_FIELDS = {
-    "project": {"main_file", "bib_files", "src_dir"},
-    "lint": {"disabled_rules", "enabled_rules", "fix_rules", "severity_overrides"},
-    "verify": {"s2_api_key", "timeout", "skip_keys", "max_concurrent", "max_requests_per_second"},
+    "project": {"main_file", "bib_files", "src_dir", "venue"},
+    "lint": {"disabled_rules", "enabled_rules", "fix_rules", "severity_overrides", "overrides"},
+    "verify": {"s2_api_key", "timeout", "skip_keys", "max_concurrent", "max_requests_per_second", "strict_doi"},
     "translate": {"target_lang", "glossary"},
     "survey": {"default_topic", "max_results", "sources"},
 }
@@ -30,6 +31,7 @@ class ProjectConfig:
     main_file: str | None = None
     bib_files: list[str] = field(default_factory=list)
     src_dir: str | None = None
+    venue: str = "generic"
 
 
 @dataclass
@@ -39,6 +41,7 @@ class LintConfig:
     disabled_rules: list[str] = field(default_factory=list)
     enabled_rules: list[str] = field(default_factory=list)
     fix_rules: list[str] = field(default_factory=list)
+    overrides: dict[str, str] = field(default_factory=dict)
     severity_overrides: dict[str, str] = field(default_factory=dict)
 
 
@@ -51,6 +54,7 @@ class VerifyConfig:
     skip_keys: list[str] = field(default_factory=list)
     max_concurrent: int = 1
     max_requests_per_second: float = 1.0
+    strict_doi: bool = False
 
 
 @dataclass
@@ -122,11 +126,13 @@ def load_config_from_file(config_path: str | Path) -> HypoConfig:
         main_file=_coerce_optional_str(project_data.get("main_file")),
         bib_files=_coerce_str_list(project_data.get("bib_files")),
         src_dir=_coerce_optional_str(project_data.get("src_dir")),
+        venue=_coerce_optional_str(project_data.get("venue")) or "generic",
     )
     config.lint = LintConfig(
         disabled_rules=_normalize_rule_list(lint_data.get("disabled_rules")),
         enabled_rules=_normalize_rule_list(lint_data.get("enabled_rules")),
         fix_rules=_normalize_rule_list(lint_data.get("fix_rules")),
+        overrides=_coerce_str_dict(lint_data.get("overrides")),
         severity_overrides=_coerce_str_dict(lint_data.get("severity_overrides")),
     )
     verify_key = _coerce_optional_str(verify_data.get("s2_api_key"))
@@ -136,6 +142,7 @@ def load_config_from_file(config_path: str | Path) -> HypoConfig:
         skip_keys=_coerce_str_list(verify_data.get("skip_keys")),
         max_concurrent=_coerce_int(verify_data.get("max_concurrent"), 1),
         max_requests_per_second=_coerce_float(verify_data.get("max_requests_per_second"), 1.0),
+        strict_doi=_coerce_bool(verify_data.get("strict_doi"), False),
     )
     config.translate = TranslateConfig(
         target_lang=_coerce_optional_str(translate_data.get("target_lang")) or "zh",
@@ -167,6 +174,8 @@ def merge_cli_args(config: HypoConfig, cli_args: dict[str, Any]) -> HypoConfig:
             merged.project.src_dir = str(value)
         elif key == "main_file":
             merged.project.main_file = str(value)
+        elif key == "venue":
+            merged.project.venue = str(value)
         elif key == "s2_api_key":
             merged.verify.s2_api_key = str(value)
         elif key == "timeout":
@@ -177,6 +186,8 @@ def merge_cli_args(config: HypoConfig, cli_args: dict[str, Any]) -> HypoConfig:
             merged.verify.max_concurrent = int(value)
         elif key == "max_requests_per_second":
             merged.verify.max_requests_per_second = float(value)
+        elif key == "strict_doi":
+            merged.verify.strict_doi = bool(value)
         elif key == "target_lang":
             merged.translate.target_lang = str(value)
         elif key == "glossary":
@@ -210,11 +221,16 @@ def generate_default_config(project_dir: str | Path | None = None) -> str:
 main_file = {main_file_value}
 bib_files = {bib_files_value}
 # src_dir = "src"
+# venue options: {", ".join(list_venues())}
+venue = "generic"
 
 [lint]
 disabled_rules = []
 enabled_rules = []
 fix_rules = []
+
+[lint.overrides]
+# float_placement = "t"
 
 [lint.severity_overrides]
 # L05 = "warning"
@@ -225,6 +241,7 @@ timeout = 30
 skip_keys = []
 max_concurrent = 1
 max_requests_per_second = 1.0
+strict_doi = false
 
 [translate]
 target_lang = "zh"
@@ -331,6 +348,21 @@ def _coerce_float(value: Any, default: float) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _coerce_bool(value: Any, default: bool) -> bool:
+    """Convert config values to booleans with fallback."""
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off"}:
+            return False
+    return default
 
 
 def _normalize_rule_list(value: Any) -> list[str]:

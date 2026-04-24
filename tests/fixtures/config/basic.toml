@@ -1,6 +1,7 @@
 [project]
 main_file = "main.tex"
 bib_files = ["refs.bib"]
+venue = "generic"
 
 [lint]
 disabled_rules = ["L09"]

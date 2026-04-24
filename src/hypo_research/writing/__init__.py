@@ -27,6 +27,7 @@ from hypo_research.writing.project import (
     resolve_project,
     virtual_to_real,
 )
+from hypo_research.writing.severity import Severity
 from hypo_research.writing.stats import (
     ChapterStats,
     OrphanParagraph,
@@ -36,6 +37,7 @@ from hypo_research.writing.stats import (
 )
 from hypo_research.writing.verify import VerificationResult, VerifyReport, title_similarity, verify_bib
 from hypo_research.writing.verify import VerifyStatus
+from hypo_research.writing.venue import VenueProfile, get_venue, list_venues
 
 __all__ = [
     "BibEntryInfo",
@@ -52,6 +54,7 @@ __all__ = [
     "OrphanParagraph",
     "ParagraphPair",
     "StatsStageResult",
+    "Severity",
     "TexFile",
     "TexStats",
     "TexProject",
@@ -59,6 +62,7 @@ __all__ = [
     "VerifyReport",
     "VerifyStatus",
     "VerifyStageResult",
+    "VenueProfile",
     "apply_fixes",
     "check_exit_code",
     "extract_stats",
@@ -73,6 +77,8 @@ __all__ = [
     "resolve_project",
     "run_check",
     "title_similarity",
+    "get_venue",
+    "list_venues",
     "verify_bib",
     "virtual_to_real",
 ]

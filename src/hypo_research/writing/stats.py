@@ -11,6 +11,8 @@ from typing import Any
 
 from hypo_research.writing.bib_parser import BibEntryInfo, parse_bib, parse_bib_files
 from hypo_research.writing.project import TexProject, resolve_project
+from hypo_research.writing.severity import Severity, resolve_severity
+from hypo_research.writing.venue import VenueProfile, get_venue
 
 
 _SECTION_RE = re.compile(r"\\(?P<level>section|subsection|subsubsection)\*?\{(?P<title>[^}]*)\}")
@@ -102,6 +104,20 @@ _BILINGUAL_EXCLUDED_ENVIRONMENTS = {
     "longtblr",
     "IEEEbiography",
     "IEEEbiographynophoto",
+}
+_RULE_DEFAULT_SEVERITIES: dict[str, Severity] = {
+    "L01": Severity.ERROR,
+    "L02": Severity.ERROR,
+    "L03": Severity.ERROR,
+    "L04": Severity.WARNING,
+    "L05": Severity.WARNING,
+    "L06": Severity.WARNING,
+    "L07": Severity.INFO,
+    "L08": Severity.WARNING,
+    "L11": Severity.WARNING,
+    "L12": Severity.WARNING,
+    "L13": Severity.WARNING,
+    "L14": Severity.INFO,
 }
 
 
@@ -235,12 +251,13 @@ class SpacingIssue:
 @dataclass
 class LintIssue:
     rule: str
-    severity: str
+    severity: Severity
     message: str
     file: str
     line: int
     context: str
     auto_fixable: bool
+    severity_source: str = ""
 
 
 @dataclass
@@ -380,9 +397,16 @@ def extract_stats(
     *,
     project: TexProject | None = None,
     bib_paths: list[str] | None = None,
+    venue: VenueProfile | None = None,
+    strict_doi: bool = False,
 ) -> TexStats:
     """Extract static LaTeX structure statistics from a file or project."""
     target_path = Path(tex_path)
+    active_venue = venue or get_venue(None)
+    valid_label_prefixes = _VALID_LABEL_PREFIXES | {
+        f"{prefix}:"
+        for prefix in active_venue.extra_label_prefixes.values()
+    }
     resolved_project = project
     if resolved_project is None and target_path.exists() and target_path.is_file():
         resolved_project = resolve_project(target_path)
@@ -521,7 +545,7 @@ def extract_stats(
                         file=display_file,
                         line=line_number,
                         env=label_env,
-                        has_prefix=_has_expected_prefix(label_name, suggested_prefix),
+                        has_prefix=_has_expected_prefix(label_name, suggested_prefix, valid_label_prefixes),
                         suggested_prefix=suggested_prefix,
                     )
                     labels.append(label)
@@ -667,7 +691,7 @@ def extract_stats(
         orphan_paragraphs=orphan_paragraphs,
         project=_stats_project_payload(resolved_project) if multi_file else None,
     )
-    stats.issues = _build_issues(stats)
+    stats.issues = _build_issues(stats, venue=active_venue, strict_doi=strict_doi)
     return stats
 
 
@@ -1201,8 +1225,12 @@ def _infer_label_environment(
     return "other", ""
 
 
-def _has_expected_prefix(label_name: str, suggested_prefix: str) -> bool:
-    if any(label_name.startswith(prefix) for prefix in _VALID_LABEL_PREFIXES):
+def _has_expected_prefix(
+    label_name: str,
+    suggested_prefix: str,
+    valid_prefixes: set[str],
+) -> bool:
+    if any(label_name.startswith(prefix) for prefix in valid_prefixes):
         return True
     if not suggested_prefix:
         return True
@@ -1274,7 +1302,12 @@ def _resolve_bib_path(tex_file: Path, target: str) -> Path:
     return path.resolve()
 
 
-def _build_issues(stats: TexStats) -> list[LintIssue]:
+def _build_issues(
+    stats: TexStats,
+    *,
+    venue: VenueProfile,
+    strict_doi: bool,
+) -> list[LintIssue]:
     issues: list[LintIssue] = []
 
     for ref in stats.refs:
@@ -1282,11 +1315,11 @@ def _build_issues(stats: TexStats) -> list[LintIssue]:
             issues.append(
                 _make_issue(
                     rule="L01",
-                    severity="error",
                     message=f"Use \\cref instead of \\{ref.ref_type}",
                     file=ref.file,
                     line=ref.line,
                     context=f"\\{ref.ref_type}{{{ref.target}}}",
+                    venue=venue,
                 )
             )
 
@@ -1295,46 +1328,51 @@ def _build_issues(stats: TexStats) -> list[LintIssue]:
             issues.append(
                 _make_issue(
                     rule="L02",
-                    severity="error",
                     message="Missing ~ before \\cref",
                     file=issue.file,
                     line=issue.line,
                     context=issue.context,
+                    venue=venue,
                 )
             )
         elif issue.issue_type == "cite":
             issues.append(
                 _make_issue(
                     rule="L03",
-                    severity="error",
                     message="Missing ~ before \\cite",
                     file=issue.file,
                     line=issue.line,
                     context=issue.context,
+                    venue=venue,
                 )
             )
 
     for float_info in stats.floats:
         if float_info.placement != "[htbp]":
+            is_accepted = float_info.placement in venue.accepted_float_placements
             issues.append(
                 _make_issue(
                     rule="L04",
-                    severity="warning",
-                    message="Float missing [htbp] placement",
+                    message=(
+                        f"Float {float_info.placement} is acceptable for {venue.display_name}"
+                        if is_accepted
+                        else "Float missing [htbp] placement"
+                    ),
                     file=float_info.file,
                     line=float_info.line,
                     context=f"\\begin{{{float_info.float_type}}}{float_info.placement}",
+                    venue=venue,
                 )
             )
         if float_info.has_label and float_info.has_caption and float_info.label_before_caption:
             issues.append(
                 _make_issue(
                     rule="L05",
-                    severity="warning",
                     message="\\label should appear after \\caption inside floats",
                     file=float_info.file,
                     line=float_info.line,
                     context=float_info.label_name,
+                    venue=venue,
                 )
             )
 
@@ -1343,7 +1381,6 @@ def _build_issues(stats: TexStats) -> list[LintIssue]:
             issues.append(
                 _make_issue(
                     rule="L06",
-                    severity="warning",
                     message=(
                         f"Label '{label.name}' missing prefix "
                         f"(suggest: {label.suggested_prefix}{label.name})"
@@ -1351,6 +1388,7 @@ def _build_issues(stats: TexStats) -> list[LintIssue]:
                     file=label.file,
                     line=label.line,
                     context=f"\\label{{{label.name}}}",
+                    venue=venue,
                 )
             )
 
@@ -1359,11 +1397,11 @@ def _build_issues(stats: TexStats) -> list[LintIssue]:
             issues.append(
                 _make_issue(
                     rule="L07",
-                    severity="info",
                     message=f"Using {env_name} instead of tblr",
                     file=env_info.file,
                     line=env_info.line,
                     context=f"\\begin{{{env_name}}}",
+                    venue=venue,
                 )
             )
 
@@ -1373,11 +1411,11 @@ def _build_issues(stats: TexStats) -> list[LintIssue]:
             issues.append(
                 _make_issue(
                     rule="L08",
-                    severity="warning",
                     message=f"Label '{label_name}' is never referenced",
                     file=label.file,
                     line=label.line,
                     context=f"\\label{{{label_name}}}",
+                    venue=venue,
                 )
             )
     for orphan_ref in stats.orphan_refs:
@@ -1386,11 +1424,12 @@ def _build_issues(stats: TexStats) -> list[LintIssue]:
             issues.append(
                 _make_issue(
                     rule="L08",
-                    severity="error",
                     message=f"Reference target '{orphan_ref}' has no matching label",
                     file=ref.file,
                     line=ref.line,
                     context=f"\\{ref.ref_type}{{{orphan_ref}}}",
+                    venue=venue,
+                    default_severity=Severity.ERROR,
                 )
             )
 
@@ -1399,11 +1438,11 @@ def _build_issues(stats: TexStats) -> list[LintIssue]:
             issues.append(
                 _make_issue(
                     rule="L11",
-                    severity="warning",
                     message="Use \\ or ~ after Fig./Tab./Eq./et al.",
                     file=spacing_issue.file,
                     line=spacing_issue.line,
                     context=spacing_issue.context,
+                    venue=venue,
                 )
             )
         elif spacing_issue.issue_type in {"multiple_spaces", "trailing_spaces"}:
@@ -1415,24 +1454,26 @@ def _build_issues(stats: TexStats) -> list[LintIssue]:
             issues.append(
                 _make_issue(
                     rule="L13",
-                    severity="warning",
                     message=message,
                     file=spacing_issue.file,
                     line=spacing_issue.line,
                     context=spacing_issue.context,
+                    venue=venue,
                 )
             )
 
     for entry in stats.bib_entries:
         for missing_field in entry.missing_fields:
+            if missing_field == "doi" and not (venue.warn_missing_doi or strict_doi):
+                continue
             issues.append(
                 _make_issue(
                     rule="L12",
-                    severity="warning",
                     message=f"Entry '{entry.key}' missing field: {missing_field}",
                     file=entry.file,
                     line=entry.line,
                     context=f"@{entry.entry_type}{{{entry.key}, ...}}",
+                    venue=venue,
                 )
             )
 
@@ -1449,12 +1490,18 @@ def _build_issues(stats: TexStats) -> list[LintIssue]:
 
 def _make_issue(
     rule: str,
-    severity: str,
     message: str,
     file: str,
     line: int,
     context: str,
+    venue: VenueProfile,
+    default_severity: Severity | None = None,
 ) -> LintIssue:
+    severity, severity_source = resolve_severity(
+        rule,
+        default_severity or _RULE_DEFAULT_SEVERITIES.get(rule, Severity.INFO),
+        venue=venue,
+    )
     return LintIssue(
         rule=rule,
         severity=severity,
@@ -1463,4 +1510,5 @@ def _make_issue(
         line=line,
         context=context,
         auto_fixable=rule in _AUTO_FIXABLE_RULES,
+        severity_source=severity_source,
     )
