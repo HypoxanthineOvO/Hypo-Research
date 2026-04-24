@@ -1,6 +1,6 @@
 [project]
 name = "hypo-research"
-version = "0.1.1"
+version = "0.4.0"
 description = "Academic research assistant skill pack"
 license = { text = "MIT" }
 requires-python = ">=3.11"

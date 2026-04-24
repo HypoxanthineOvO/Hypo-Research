@@ -25,6 +25,37 @@ uv sync
 
 > 没有 uv？`curl -LsSf https://astral.sh/uv/install.sh | sh`
 
+## Installation
+
+### As a Python package / repo checkout
+
+```bash
+git clone https://github.com/HypoxanthineOvO/Hypo-Research.git
+cd Hypo-Research
+uv sync
+./install-skills.sh
+```
+
+### As a Claude Code Plugin
+
+```text
+/plugin marketplace add HypoxanthineOvO/Hypo-Research
+/plugin install hypo-research@hypoxanthineovo-hypo-research
+```
+
+### As a Codex Skill
+
+当前 Codex `skill-installer` 的稳定方式是从 GitHub repo/path 安装一个 skill bundle：
+
+```text
+$skill-installer https://github.com/HypoxanthineOvO/Hypo-Research/tree/main/.agents/skills/hypo-research
+```
+
+说明：
+
+- Claude Code 侧支持 marketplace 安装。
+- Codex 侧当前支持的是 GitHub 路径安装；裸名字安装依赖上游 curated registry，不由本仓库单独决定。
+
 ### 配置（可选）
 
 ```bash
@@ -42,6 +73,12 @@ uv run hypo-research init --dir ./paper
 ```
 
 优先级：CLI 参数 > `.hypo-research.toml` > 环境变量 > 内置默认值。
+
+Packaging 入口：
+
+- Claude marketplace: [`.claude-plugin/marketplace.json`](./.claude-plugin/marketplace.json)
+- Claude plugin bundle: [`plugins/hypo-research/.claude-plugin/plugin.json`](./plugins/hypo-research/.claude-plugin/plugin.json)
+- Codex skill bundle: [`.agents/skills/hypo-research/SKILL.md`](./.agents/skills/hypo-research/SKILL.md)
 
 ---
 

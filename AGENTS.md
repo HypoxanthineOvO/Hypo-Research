@@ -36,6 +36,15 @@
 
 首次使用前运行 `./install-skills.sh` 安装 Skills 到各 Agent 的约定位置。
 
+## Plugin / Skill 安装
+
+本仓库同时提供两种分发入口：
+
+- Claude Code marketplace：`.claude-plugin/marketplace.json`
+- Codex skill bundle：`.agents/skills/hypo-research/`
+
+注意：当前 Codex `skill-installer` 的稳定能力是从 GitHub repo/path 安装 skill bundle；裸名字安装依赖上游 curated registry，不由本仓库单独决定。
+
 ## 能力概览
 
 | 能力 | 说明 | 命令 |
