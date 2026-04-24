@@ -35,6 +35,7 @@ from hypo_research.hooks import AutoBibHook, AutoReportHook, AutoVerifyHook, Hoo
 from hypo_research.output.json_output import write_search_output
 from hypo_research.survey.targeted import TargetedSearch, slugify_query
 from hypo_research.writing.bib_parser import parse_bib, parse_bib_files
+from hypo_research.writing.check import check_exit_code, render_check_report, run_check
 from hypo_research.writing.config import (
     CONFIG_FILENAME,
     HypoConfig,
@@ -1127,6 +1128,125 @@ def lint(
         f"Summary: {summary['errors']} errors, {summary['warnings']} warnings, {summary['info']} info"
     )
     raise click.exceptions.Exit(_lint_exit_code(stats, selected_rules))
+
+
+@main.command()
+@click.pass_context
+@click.option(
+    "--no-dry-run",
+    is_flag=True,
+    default=False,
+    help="Apply fixes to files instead of previewing them.",
+)
+@click.option(
+    "--backup",
+    is_flag=True,
+    default=False,
+    help="Create .bak backups before writing fixes.",
+)
+@click.option(
+    "--lint-only",
+    is_flag=True,
+    default=False,
+    help="Only run lint/fix stages and skip verification.",
+)
+@click.option(
+    "--no-fix",
+    is_flag=True,
+    default=False,
+    help="Skip auto-fix and only report lint results.",
+)
+@click.option(
+    "--no-verify",
+    is_flag=True,
+    default=False,
+    help="Skip citation verification stage.",
+)
+@click.option(
+    "--rules",
+    type=str,
+    default=None,
+    help="Comma-separated fix rule filter, e.g. L01,L04.",
+)
+@click.option(
+    "--project-dir",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    default=None,
+    help="Explicit LaTeX project root directory.",
+)
+@click.option(
+    "--bib",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Explicit .bib file path override.",
+)
+@click.option(
+    "--json",
+    "json_mode",
+    is_flag=True,
+    default=False,
+    help="Print JSON only.",
+)
+@click.option(
+    "--no-save",
+    is_flag=True,
+    default=False,
+    help="Do not save a JSON report file.",
+)
+@click.argument(
+    "path",
+    type=click.Path(path_type=Path),
+)
+def check(
+    ctx: click.Context,
+    no_dry_run: bool,
+    backup: bool,
+    lint_only: bool,
+    no_fix: bool,
+    no_verify: bool,
+    rules: str | None,
+    project_dir: Path | None,
+    bib: Path | None,
+    json_mode: bool,
+    no_save: bool,
+    path: Path,
+) -> None:
+    """Run the full writing-quality check pipeline."""
+    if backup and not no_dry_run:
+        raise click.ClickException("--backup requires --no-dry-run")
+
+    config_start_dir = project_dir or path.parent
+    config = _load_command_config(start_dir=config_start_dir)
+    resolved_project_dir = project_dir.resolve() if project_dir is not None else None
+    resolved_path = _resolve_optional_file(path, project_dir=resolved_project_dir, must_exist=True)
+    assert resolved_path is not None
+    selected_fix_rules = _parse_rules_option(rules)
+
+    if bib is not None and config.project.bib_files != [bib.as_posix()]:
+        config.project.bib_files = [bib.as_posix()]
+
+    try:
+        report = run_check(
+            resolved_path,
+            config=config,
+            fix=not no_fix,
+            dry_run=not no_dry_run,
+            backup=backup,
+            lint_only=lint_only,
+            no_fix=no_fix,
+            verify=not no_verify,
+            rules=sorted(selected_fix_rules) if selected_fix_rules is not None else None,
+            save_report=not no_save,
+        )
+    except Exception as exc:
+        click.echo(str(exc), err=True)
+        raise click.exceptions.Exit(2)
+
+    if json_mode:
+        click.echo(report.to_json(), nl=False)
+    else:
+        click.echo(render_check_report(report))
+    raise click.exceptions.Exit(check_exit_code(report))
 
 
 @main.command()

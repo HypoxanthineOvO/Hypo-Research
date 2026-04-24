@@ -66,6 +66,7 @@ Hypo-Research provides **8 Skills** organized into two modules:
 | `/hypo-verify` | `uv run hypo-research verify` | Citation verification — check `.bib` entries against Semantic Scholar and OpenAlex |
 | `/hypo-polish` | `uv run hypo-research lint --stats` | English polishing — full-document scan or targeted section rewriting (Agent-driven, uses `chapter_stats`) |
 | `/hypo-translate` | `uv run hypo-research lint --stats` | Bilingual maintenance — sync/cn2en/en2cn modes for `% 中文注释` + English paragraph pairs |
+| `/hypo-check` | `uv run hypo-research check` | Writing pipeline — lint, auto-fix, verify, and save an aggregated report |
 
 ## 📖 Skills 使用指南
 
@@ -359,6 +360,22 @@ uv run hypo-research verify --project-dir ./paper
 uv run hypo-research verify --keys craterlake2022,f1_2021 refs.bib
 ```
 
+#### One-Command Check Pipeline
+
+```bash
+# Full pipeline (fix dry-run + verify + report)
+uv run hypo-research check paper.tex
+
+# Apply fixes, then verify
+uv run hypo-research check --no-dry-run --backup paper.tex
+
+# Lint/fix only
+uv run hypo-research check --lint-only paper.tex
+
+# JSON-only output
+uv run hypo-research check --json --no-save paper.tex
+```
+
 #### Polishing & Translation (Agent-driven)
 
 ```bash
@@ -440,6 +457,7 @@ src/hypo_research/writing/
 ├── config.py         # .hypo-research.toml loading and init helpers
 ├── project.py        # Multi-file LaTeX project resolution
 ├── fixer.py          # Lint auto-fix generation and application
+├── check.py          # Writing pipeline orchestration and reporting
 ├── stats.py          # TexStats: labels, refs, floats, sections, chapter_stats, paragraph_pairs
 ├── bib_parser.py     # BibEntryInfo: .bib file parsing
 └── verify.py         # Citation verification via S2/OpenAlex
@@ -457,6 +475,8 @@ uv run hypo-research init --dir ./paper
 ```
 
 优先级：CLI 参数 > `.hypo-research.toml` > 环境变量 > 内置默认值。
+
+`check` 报告默认写入 `.hypo-research-report/check-YYYY-MM-DD.json`，建议将 `.hypo-research-report/` 加入 `.gitignore`。
 
 ### Semantic Scholar API Key
 

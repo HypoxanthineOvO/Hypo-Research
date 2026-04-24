@@ -28,6 +28,7 @@
 - `hypo-verify` — 联网验证单/多 `.bib` 引用是否真实存在并检查元数据错误
 - `hypo-polish` — 基于章节写作统计做英文润色建议或定向改写，支持 `\input`/`\include` 项目
 - `hypo-translate` — 维护中文注释与英文正文的双语同步，支持多文件 LaTeX 项目
+- `hypo-check` — 一键执行 lint → fix → verify → 聚合报告的 writing pipeline
 
 调用方式：
 - Claude Code：`/hypo-survey` 或 `$hypo-survey`
@@ -55,6 +56,7 @@
 - 按规则筛选 / 分类已有调研结果
 - 检查某个候选池是否漏掉关键论文
 - 检查单文件或多文件 LaTeX 论文的 label / ref / float / BibTeX 结构问题
+- 对论文项目执行一键全面检查（lint + fix + verify + report）
 - 检查 `.bib` 中是否存在幻觉论文或错误元数据
 - 对论文英文做润色或定向改写
 - 维护中英双语草稿的一致性
@@ -143,7 +145,7 @@ export SEMANTIC_SCHOLAR_API_KEY="your-key-here"
 ```text
 src/hypo_research/
 ├── core/models.py, rate_limiter.py, dedup.py, verifier.py
-├── writing/{config.py, project.py, fixer.py, stats.py, bib_parser.py, verify.py}
+├── writing/{config.py, project.py, fixer.py, check.py, stats.py, bib_parser.py, verify.py}
 ├── core/sources/{base.py, semantic_scholar.py, openalex.py, arxiv.py}
 ├── hooks/{base.py, auto_verify.py, auto_bib.py, auto_report.py}
 ├── survey/targeted.py

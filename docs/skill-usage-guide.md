@@ -24,6 +24,7 @@ uv sync
 | `/hypo-verify` | 引用验证 | 联网验证 `.bib` 引用是否真实存在并检查元数据错误 |
 | `/hypo-polish` | 学术英文润色 | 基于章节统计做全文扫描或定向润色 |
 | `/hypo-translate` | 双语翻译维护 | 维护中文注释与英文正文的同步 |
+| `/hypo-check` | 一键检查流水线 | 串联 lint、fix、verify 并输出聚合报告 |
 
 ## 在 Claude Code 中使用
 
@@ -35,6 +36,7 @@ uv sync
 - `/hypo-verify bib="refs.bib" tex="docs/"`
 - `/hypo-polish path="paper.tex" mode=full`
 - `/hypo-translate path="paper.tex" mode=sync`
+- `/hypo-check path="paper.tex"`
 
 多文件 LaTeX 项目也支持：
 
@@ -52,6 +54,9 @@ uv sync
 - `uv run hypo-research lint --fix --no-dry-run paper.tex`
 - `uv run hypo-research lint --fix --no-dry-run --backup paper.tex`
 - `uv run hypo-research lint --fix --rules L01,L04 paper.tex`
+- `uv run hypo-research check paper.tex`
+- `uv run hypo-research check --no-dry-run --backup paper.tex`
+- `uv run hypo-research check --json --no-save paper.tex`
 
 ## 项目配置文件
 
@@ -115,6 +120,7 @@ uv run hypo-research init --dir ./paper
 - `/hypo-verify` 或 `/prompts:hypo-verify`
 - `/hypo-polish` 或 `/prompts:hypo-polish`
 - `/hypo-translate` 或 `/prompts:hypo-translate`
+- `/hypo-check` 或 `/prompts:hypo-check`
 
 也可以直接用自然语言描述需求，让 Agent 结合 `AGENTS.md` 自动路由。
 
