@@ -62,6 +62,7 @@ class OpenAlexSource(BaseSource):
         self,
         rate_limiter: RateLimiter | None = None,
         email: str | None = None,
+        timeout: float = 30.0,
     ):
         self.email = email or os.getenv("OPENALEX_EMAIL") or "hyx021203@163.com"
         headers = {
@@ -75,7 +76,7 @@ class OpenAlexSource(BaseSource):
         self._client = httpx.AsyncClient(
             base_url=self.BASE_URL,
             headers=headers,
-            timeout=30.0,
+            timeout=timeout,
         )
         self._limiter = rate_limiter or RateLimiter(
             max_tokens=10 if self.email else 1,

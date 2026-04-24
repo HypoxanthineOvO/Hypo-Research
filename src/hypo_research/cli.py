@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import ast
+import copy
 import json
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
 import click
+from click.core import ParameterSource
 from rich.console import Console
 from rich.table import Table
 
@@ -33,6 +35,13 @@ from hypo_research.hooks import AutoBibHook, AutoReportHook, AutoVerifyHook, Hoo
 from hypo_research.output.json_output import write_search_output
 from hypo_research.survey.targeted import TargetedSearch, slugify_query
 from hypo_research.writing.bib_parser import parse_bib, parse_bib_files
+from hypo_research.writing.config import (
+    CONFIG_FILENAME,
+    HypoConfig,
+    detect_project_config_values,
+    generate_default_config,
+    load_config,
+)
 from hypo_research.writing.fixer import FixReport, apply_fixes, generate_fixes
 from hypo_research.writing.project import MultipleMainFilesError, TexProject, resolve_project
 from hypo_research.writing.stats import TexStats, extract_stats
@@ -55,6 +64,25 @@ def _normalize_queries(queries: list[str]) -> list[str]:
         if cleaned:
             normalized.append(cleaned)
     return normalized
+
+
+def _cli_value_provided(ctx: click.Context, name: str) -> bool:
+    source = ctx.get_parameter_source(name)
+    return source in {
+        ParameterSource.COMMANDLINE,
+        ParameterSource.ENVIRONMENT,
+        ParameterSource.PROMPT,
+    }
+
+
+def _load_command_config(
+    *,
+    start_dir: str | Path | None = None,
+) -> HypoConfig:
+    config = load_config(start_dir)
+    if config.config_path is not None:
+        click.echo(f"Loaded config from {config.config_path}", err=True)
+    return config
 
 
 class OptionEatAll(click.Option):
@@ -120,6 +148,33 @@ def _parse_rules_option(raw_value: str | None) -> set[str] | None:
     return rules or None
 
 
+def _resolve_lint_rules(
+    *,
+    cli_rules: set[str] | None,
+    config: HypoConfig,
+) -> set[str] | None:
+    if cli_rules is not None:
+        return cli_rules
+    if config.lint.enabled_rules:
+        return set(config.lint.enabled_rules) - set(config.lint.disabled_rules)
+    if config.lint.disabled_rules:
+        all_rules = {f"L{index:02d}" for index in range(1, 20)}
+        return all_rules - set(config.lint.disabled_rules)
+    return None
+
+
+def _resolve_fix_rules(
+    *,
+    cli_rules: set[str] | None,
+    config: HypoConfig,
+) -> list[str] | None:
+    if cli_rules is not None:
+        return sorted(cli_rules)
+    if config.lint.fix_rules:
+        return list(config.lint.fix_rules)
+    return None
+
+
 def _format_lint_issue(issue: object, *, show_file: bool) -> str:
     """Render a human-readable lint issue line."""
     rule = getattr(issue, "rule")
@@ -164,6 +219,20 @@ def _render_fix_report(report: FixReport, *, show_file: bool) -> list[str]:
     return lines
 
 
+def _apply_severity_overrides(
+    stats: TexStats,
+    config: HypoConfig,
+) -> TexStats:
+    if not config.lint.severity_overrides:
+        return stats
+    adjusted = copy.deepcopy(stats)
+    for issue in adjusted.issues:
+        override = config.lint.severity_overrides.get(issue.rule)
+        if override is not None:
+            issue.severity = override
+    return adjusted
+
+
 def _lint_exit_code(stats: TexStats, rules: set[str] | None) -> int:
     """Return lint exit code based on filtered error severity."""
     return 1 if any(issue.severity == "error" for issue in stats.filtered_issues(rules)) else 0
@@ -188,6 +257,7 @@ def _estimate_verify_total(
     tex_path: Path | None,
     project: TexProject | None,
     keys: list[str] | None,
+    skip_keys: list[str] | None = None,
 ) -> int:
     """Estimate how many entries will be verified for progress reporting."""
     if bib_paths:
@@ -209,6 +279,9 @@ def _estimate_verify_total(
     filtered = entries
     if selected_keys is not None:
         filtered = [entry for entry in filtered if entry.key in selected_keys]
+    if skip_keys:
+        skip_key_set = {key for key in skip_keys}
+        filtered = [entry for entry in filtered if entry.key not in skip_key_set]
     filtered = [entry for entry in filtered if entry.fields.get("title") or entry.fields.get("doi")]
     return len(filtered)
 
@@ -242,18 +315,19 @@ def _resolve_project_arg(
     path: Path,
     *,
     project_dir: Path | None = None,
+    config: HypoConfig | None = None,
 ) -> TexProject:
     resolved_input = _resolve_optional_file(path, project_dir=project_dir)
     assert resolved_input is not None
     try:
-        return resolve_project(resolved_input)
+        return resolve_project(resolved_input, config=config)
     except (FileNotFoundError, MultipleMainFilesError, ValueError) as exc:
         raise click.ClickException(str(exc)) from exc
 
 
-def _resolve_project_root_only(project_dir: Path) -> TexProject:
+def _resolve_project_root_only(project_dir: Path, *, config: HypoConfig | None = None) -> TexProject:
     try:
-        return resolve_project(project_dir)
+        return resolve_project(project_dir, config=config)
     except (FileNotFoundError, MultipleMainFilesError, ValueError) as exc:
         raise click.ClickException(str(exc)) from exc
 
@@ -443,6 +517,40 @@ def main() -> None:
 
 
 @main.command()
+@click.option(
+    "--dir",
+    "target_dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=Path("."),
+    help="Directory to initialize with a .hypo-research.toml file.",
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    default=False,
+    help="Overwrite an existing config file.",
+)
+def init(target_dir: Path, force: bool) -> None:
+    """Create a default project config file in the target directory."""
+    resolved_dir = target_dir.expanduser().resolve()
+    resolved_dir.mkdir(parents=True, exist_ok=True)
+    config_path = resolved_dir / CONFIG_FILENAME
+    if config_path.exists() and not force:
+        raise click.ClickException(f"{CONFIG_FILENAME} already exists at {config_path}")
+
+    content = generate_default_config(project_dir=resolved_dir)
+    config_path.write_text(content, encoding="utf-8")
+
+    detected_main, detected_bibs = detect_project_config_values(resolved_dir)
+    click.echo(f"Created {config_path}")
+    if detected_main:
+        click.echo(f"Detected main_file: {detected_main}")
+    if detected_bibs:
+        click.echo(f"Detected bib_files: {', '.join(detected_bibs)}")
+
+
+@main.command()
+@click.pass_context
 @click.argument("query", required=False)
 @click.option("--year-start", type=int, default=None, help="Start year (inclusive)")
 @click.option("--year-end", type=int, default=None, help="End year (inclusive)")
@@ -477,7 +585,7 @@ def main() -> None:
     "-s",
     multiple=True,
     type=click.Choice(["s2", "openalex", "arxiv", "all"], case_sensitive=False),
-    default=["all"],
+    default=(),
     help="Data sources to search. Can specify multiple. Default: all.",
 )
 @click.option(
@@ -517,6 +625,7 @@ def main() -> None:
     help="Disable automatic metadata quality check.",
 )
 def search(
+    ctx: click.Context,
     query: str | None,
     year_start: int | None,
     year_end: int | None,
@@ -536,6 +645,7 @@ def search(
     no_auto_verify: bool,
 ) -> None:
     """Run a targeted literature search."""
+    config = _load_command_config()
     if (year_start is None) != (year_end is None):
         raise click.BadParameter(
             "--year-start and --year-end must be provided together"
@@ -545,6 +655,8 @@ def search(
     if queries_file is not None:
         queries, expansion_trace = _load_queries_payload(queries_file)
     else:
+        if not query and config.survey.default_topic:
+            query = config.survey.default_topic
         if not query:
             raise click.UsageError(
                 "QUERY is required unless --queries-file is provided"
@@ -567,7 +679,9 @@ def search(
     if not queries:
         raise click.ClickException("At least one non-empty query is required")
 
-    sources = _build_sources(source, s2_api_key, openalex_email)
+    effective_max_results = max_results if _cli_value_provided(ctx, "max_results") else config.survey.max_results
+    effective_sources = source if _cli_value_provided(ctx, "source") else tuple(config.survey.sources)
+    sources = _build_sources(effective_sources, s2_api_key, openalex_email)
     hook_manager = _build_hook_manager(
         no_hooks=no_hooks,
         no_bib=no_bib,
@@ -581,7 +695,7 @@ def search(
         query=base_query,
         year_range=(year_start, year_end) if year_start is not None else None,
         fields_of_study=list(fields) or None,
-        max_results=max_results,
+        max_results=effective_max_results,
         sort_by=sort,
     )
 
@@ -874,6 +988,7 @@ def cite(
 
 
 @main.command()
+@click.pass_context
 @click.option(
     "--stats",
     "stats_mode",
@@ -921,8 +1036,10 @@ def cite(
 @click.argument(
     "path",
     type=click.Path(path_type=Path),
+    required=False,
 )
 def lint(
+    ctx: click.Context,
     stats_mode: bool,
     fix_mode: bool,
     no_dry_run: bool,
@@ -930,7 +1047,7 @@ def lint(
     rules: str | None,
     bib: Path | None,
     project_dir: Path | None,
-    path: Path,
+    path: Path | None,
 ) -> None:
     """Extract and report LaTeX structure lint issues."""
     if no_dry_run and not fix_mode:
@@ -940,22 +1057,46 @@ def lint(
     if backup and not no_dry_run:
         raise click.ClickException("--backup requires --fix --no-dry-run")
 
-    selected_rules = _parse_rules_option(rules)
+    config_start_dir = project_dir or (path.parent if path is not None else None)
+    config = _load_command_config(start_dir=config_start_dir)
+    selected_rules = _resolve_lint_rules(
+        cli_rules=_parse_rules_option(rules),
+        config=config,
+    )
     resolved_project_dir = project_dir.resolve() if project_dir is not None else None
-    project = _resolve_project_arg(path, project_dir=resolved_project_dir)
-    resolved_bib = _resolve_optional_file(bib, project_dir=project.project_dir, must_exist=True)
+    if path is None:
+        if config.project.main_file is None:
+            raise click.ClickException("PATH is required unless config.project.main_file is set")
+        config_base_dir = config.config_path.parent if config.config_path is not None else Path.cwd()
+        base_dir = (
+            (config_base_dir / config.project.src_dir).resolve()
+            if config.project.src_dir
+            else config_base_dir.resolve()
+        )
+        path = (base_dir / config.project.main_file).resolve()
+    project = _resolve_project_arg(path, project_dir=resolved_project_dir, config=config)
+    default_bib = config.project.bib_files[0] if config.project.bib_files else None
+    resolved_bib = _resolve_optional_file(
+        bib if _cli_value_provided(ctx, "bib") else (Path(default_bib) if default_bib else None),
+        project_dir=project.project_dir,
+        must_exist=True,
+    )
     stats = extract_stats(
         project.root_file,
         bib_path=resolved_bib,
         project=project,
     )
+    display_stats = _apply_severity_overrides(stats, config)
     show_file = stats.project is not None
 
     if fix_mode:
         fixes = generate_fixes(
             stats,
             project=project,
-            rules=sorted(selected_rules) if selected_rules is not None else None,
+            rules=_resolve_fix_rules(
+                cli_rules=_parse_rules_option(rules),
+                config=config,
+            ),
         )
         report = apply_fixes(
             fixes,
@@ -971,17 +1112,17 @@ def lint(
         raise click.exceptions.Exit(1 if report.errors else 0)
 
     if stats_mode:
-        click.echo(stats.to_json(selected_rules), nl=False)
+        click.echo(display_stats.to_json(selected_rules), nl=False)
         raise click.exceptions.Exit(_lint_exit_code(stats, selected_rules))
 
-    issues = stats.filtered_issues(selected_rules)
+    issues = display_stats.filtered_issues(selected_rules)
     if issues:
         for issue in issues:
             click.echo(_format_lint_issue(issue, show_file=show_file))
     else:
         click.echo("No issues found.")
 
-    summary = stats.summary(selected_rules)
+    summary = display_stats.summary(selected_rules)
     click.echo(
         f"Summary: {summary['errors']} errors, {summary['warnings']} warnings, {summary['info']} info"
     )
@@ -989,6 +1130,7 @@ def lint(
 
 
 @main.command()
+@click.pass_context
 @click.option(
     "--stats",
     "stats_mode",
@@ -1026,6 +1168,7 @@ def lint(
     required=False,
 )
 def verify(
+    ctx: click.Context,
     stats_mode: bool,
     tex: Path | None,
     project_dir: Path | None,
@@ -1034,18 +1177,38 @@ def verify(
     bib: Path | None,
 ) -> None:
     """Verify citation metadata in a BibTeX file."""
+    config_start_dir = project_dir or tex or bib
+    config = _load_command_config(start_dir=config_start_dir)
     selected_keys = _parse_keys_option(keys)
     resolved_project_dir = project_dir.resolve() if project_dir is not None else None
-    resolved_tex = _resolve_optional_file(tex, project_dir=resolved_project_dir, must_exist=True)
+    default_tex = None
+    if tex is None and config.project.main_file and config.config_path is not None:
+        config_base_dir = config.config_path.parent
+        base_dir = (config_base_dir / config.project.src_dir).resolve() if config.project.src_dir else config_base_dir
+        default_tex = base_dir / config.project.main_file
+    resolved_tex = _resolve_optional_file(tex or default_tex, project_dir=resolved_project_dir, must_exist=True)
     project = None
     if resolved_tex is not None:
-        project = _resolve_project_arg(resolved_tex)
+        project = _resolve_project_arg(resolved_tex, config=config)
     elif resolved_project_dir is not None:
-        project = _resolve_project_root_only(resolved_project_dir)
+        project = _resolve_project_root_only(resolved_project_dir, config=config)
 
-    bib_base_dir = project.project_dir if project is not None else resolved_project_dir
-    resolved_bib = _resolve_optional_file(bib, project_dir=bib_base_dir, must_exist=True)
-    discovered_bib_paths = [] if resolved_bib is not None else (list(project.bib_files) if project is not None else [])
+    config_base_dir = config.config_path.parent.resolve() if config.config_path is not None else None
+    bib_base_dir = project.project_dir if project is not None else (resolved_project_dir or config_base_dir)
+    default_bib = Path(config.project.bib_files[0]) if config.project.bib_files else None
+    resolved_bib = _resolve_optional_file(
+        bib if _cli_value_provided(ctx, "bib") else default_bib,
+        project_dir=bib_base_dir,
+        must_exist=True,
+    )
+    discovered_bib_paths = [] if resolved_bib is not None else (
+        list(project.bib_files)
+        if project is not None
+        else [
+            _resolve_existing_path(Path(bib_file), project_dir=bib_base_dir)
+            for bib_file in config.project.bib_files
+        ]
+    )
     if resolved_bib is None and not discovered_bib_paths:
         raise click.ClickException("Provide a .bib path or a LaTeX project with discoverable bibliography files.")
 
@@ -1055,6 +1218,7 @@ def verify(
         resolved_tex,
         project,
         selected_keys,
+        config.verify.skip_keys,
     )
     progress_state = {"count": 0}
 
@@ -1091,6 +1255,10 @@ def verify(
             tex_path=tex_argument,
             project=project,
             keys=selected_keys,
+            s2_api_key=config.verify.s2_api_key,
+            timeout=config.verify.timeout,
+            skip_keys=config.verify.skip_keys,
+            max_concurrent=config.verify.max_concurrent,
             progress_callback=progress_callback,
         )
     )

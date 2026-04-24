@@ -61,6 +61,15 @@
 
 ## 快速使用
 
+### 初始化项目配置
+
+```bash
+uv run hypo-research init
+uv run hypo-research init --dir ./paper
+```
+
+配置文件名固定为 `.hypo-research.toml`，优先级为：CLI 参数 > 配置文件 > 环境变量 > 内置默认值。
+
 ### 单 query 检索
 
 ```bash
@@ -134,7 +143,7 @@ export SEMANTIC_SCHOLAR_API_KEY="your-key-here"
 ```text
 src/hypo_research/
 ├── core/models.py, rate_limiter.py, dedup.py, verifier.py
-├── writing/{project.py, stats.py, bib_parser.py, verify.py}
+├── writing/{config.py, project.py, fixer.py, stats.py, bib_parser.py, verify.py}
 ├── core/sources/{base.py, semantic_scholar.py, openalex.py, arxiv.py}
 ├── hooks/{base.py, auto_verify.py, auto_bib.py, auto_report.py}
 ├── survey/targeted.py

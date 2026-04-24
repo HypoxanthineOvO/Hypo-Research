@@ -11,6 +11,8 @@ license: MIT
 
 执行一次完整的多源文献调研。
 
+如果项目根目录存在 `.hypo-research.toml`，优先读取其中的 `survey` 默认配置（如 `default_topic`、`max_results`、`sources`）。
+
 ## 参数
 
 $ARGUMENTS

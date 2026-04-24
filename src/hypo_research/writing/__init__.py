@@ -1,6 +1,14 @@
 """Writing-side helpers for linting and paper drafting workflows."""
 
 from hypo_research.writing.bib_parser import BibEntryInfo, parse_bib, parse_bib_files
+from hypo_research.writing.config import (
+    CONFIG_FILENAME,
+    HypoConfig,
+    generate_default_config,
+    load_config,
+    load_config_from_file,
+    merge_cli_args,
+)
 from hypo_research.writing.fixer import Fix, FixAction, FixReport, apply_fixes, generate_fixes
 from hypo_research.writing.project import (
     CircularInputError,
@@ -23,9 +31,11 @@ __all__ = [
     "BibEntryInfo",
     "ChapterStats",
     "CircularInputError",
+    "CONFIG_FILENAME",
     "Fix",
     "FixAction",
     "FixReport",
+    "HypoConfig",
     "MultipleMainFilesError",
     "OrphanParagraph",
     "ParagraphPair",
@@ -37,6 +47,10 @@ __all__ = [
     "apply_fixes",
     "extract_stats",
     "generate_fixes",
+    "generate_default_config",
+    "load_config",
+    "load_config_from_file",
+    "merge_cli_args",
     "parse_bib",
     "parse_bib_files",
     "resolve_project",

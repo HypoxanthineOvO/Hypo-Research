@@ -34,7 +34,7 @@ class SemanticScholarSource(BaseSource):
     RELATIONSHIP_PAGE_SIZE = 1000
     MAX_RETRIES = 3
 
-    def __init__(self, api_key: str | None = None):
+    def __init__(self, api_key: str | None = None, timeout: float = 30.0):
         self.api_key = api_key or os.environ.get("SEMANTIC_SCHOLAR_API_KEY")
         self.headers = {
             "Accept": "application/json",
@@ -46,7 +46,7 @@ class SemanticScholarSource(BaseSource):
         self._client = httpx.AsyncClient(
             base_url=self.BASE_URL,
             headers=self.headers,
-            timeout=30.0,
+            timeout=timeout,
         )
         self.rate_limiter = RateLimiter(
             max_tokens=10 if self.api_key else 1,

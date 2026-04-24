@@ -14,6 +14,8 @@ license: MIT
 
 脚本负责事实提取，Agent 负责判断。先运行统计提取器得到结构 JSON，再根据规则输出检查报告；如果用户要求修复，则只自动修改明确可修复项。
 
+如果项目根目录存在 `.hypo-research.toml`，可直接读取 `project.main_file`、`project.bib_files`、`lint.disabled_rules`、`lint.fix_rules` 等默认值。
+
 ## 参数
 
 $ARGUMENTS
@@ -122,3 +124,12 @@ uv run hypo-research lint --fix --rules L01,L04 paper.tex
 | L06 | Delete orphan `\label` |
 | L11 | `\toprule` / `\midrule` / `\bottomrule` → `\hline` in `tblr` |
 | L13 | Insert `~` before `\cref` |
+
+## Config Support
+
+如果项目根目录存在 `.hypo-research.toml`，优先读取：
+
+- `project.main_file`
+- `project.bib_files`
+- `lint.disabled_rules`
+- `lint.fix_rules`

@@ -7,6 +7,8 @@ import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
+from hypo_research.writing.config import HypoConfig
+
 
 _DOCUMENTCLASS_RE = re.compile(r"\\documentclass(?:\[[^\]]*\])?\{[^}]+\}")
 _INCLUDE_RE = re.compile(r"\\(?P<kind>input|include)\{(?P<target>[^}]+)\}")
@@ -48,11 +50,25 @@ class TexProject:
     merged_content: str
 
 
-def resolve_project(tex_path: str | Path) -> TexProject:
+def resolve_project(
+    tex_path: str | Path,
+    *,
+    config: HypoConfig | None = None,
+) -> TexProject:
     """Resolve a LaTeX file into a single-file or multi-file project."""
     input_path = Path(tex_path).expanduser()
     if not input_path.is_absolute():
         input_path = input_path.resolve()
+
+    config_base_dir = (
+        config.config_path.parent.resolve()
+        if config is not None and config.config_path is not None
+        else None
+    )
+    if config is not None and config.project.src_dir and config_base_dir is not None:
+        configured_project_dir = (config_base_dir / config.project.src_dir).resolve()
+    else:
+        configured_project_dir = None
 
     if not input_path.exists():
         raise FileNotFoundError(f"LaTeX file not found: {tex_path}")
@@ -62,13 +78,27 @@ def resolve_project(tex_path: str | Path) -> TexProject:
             raise FileNotFoundError(f"No .tex main file found under: {tex_path}")
         input_path = root_file
 
-    root_file = input_path if _is_main_file(input_path) else _search_main_file(input_path)
+    if config is not None and config.project.main_file and config_base_dir is not None:
+        base_dir = configured_project_dir or config_base_dir
+        configured_root = (base_dir / config.project.main_file).resolve()
+        if not configured_root.exists():
+            raise FileNotFoundError(f"Configured main file not found: {configured_root}")
+        root_file = configured_root
+    else:
+        root_file = input_path if _is_main_file(input_path) else _search_main_file(input_path)
     if root_file is None:
-        return _build_single_file_project(input_path)
+        project = _build_single_file_project(input_path)
+    else:
+        project = _build_project(root_file.resolve(), project_dir=configured_project_dir)
 
-    project = _build_project(root_file.resolve())
-    if len(project.files) == 1 and project.files[0].abs_path == root_file.resolve():
-        return _build_single_file_project(root_file.resolve())
+    if root_file is not None and len(project.files) == 1 and project.files[0].abs_path == root_file.resolve():
+        project = _build_single_file_project(root_file.resolve())
+    if config is not None and config.project.bib_files:
+        base_dir = configured_project_dir or config_base_dir or project.project_dir
+        project.bib_files = [
+            ((base_dir / bib_file).resolve() if not Path(bib_file).is_absolute() else Path(bib_file).resolve())
+            for bib_file in config.project.bib_files
+        ]
     return project
 
 
@@ -90,8 +120,8 @@ def virtual_to_real(project: TexProject, virtual_line: int) -> tuple[str, int]:
     raise ValueError(f"Virtual line {virtual_line} does not map to a source line")
 
 
-def _build_project(root_file: Path) -> TexProject:
-    project_dir = root_file.parent.resolve()
+def _build_project(root_file: Path, project_dir: Path | None = None) -> TexProject:
+    project_dir = (project_dir or root_file.parent).resolve()
     file_records: dict[Path, TexFile] = {}
     file_order: list[Path] = []
     merged_lines: list[str] = []

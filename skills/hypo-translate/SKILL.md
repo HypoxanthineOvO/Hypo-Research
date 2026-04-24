@@ -14,6 +14,8 @@ license: MIT
 
 本 Skill 面向这种格式：
 
+如果项目根目录存在 `.hypo-research.toml`，可直接读取 `project.main_file` 和 `translate.glossary` 作为默认配置。
+
 ```latex
 % 我们提出了一种基于 NTT 流水线优化的 FHE 加速框架。
 We propose an FHE acceleration framework based on optimized NTT pipelines.

@@ -1,0 +1,6 @@
+[project]
+main_file = "main.tex"
+future_field = "some_value"
+
+[future_section]
+another = true

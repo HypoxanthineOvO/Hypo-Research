@@ -1,0 +1,9 @@
+[project]
+main_file = "main.tex"
+bib_files = ["refs.bib"]
+
+[lint]
+disabled_rules = ["L09"]
+
+[verify]
+timeout = 60

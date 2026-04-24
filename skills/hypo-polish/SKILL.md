@@ -13,6 +13,8 @@ license: MIT
 
 语言判断完全由 Agent 负责。脚本只负责统计章节信息和定位可疑区域。
 
+如果项目根目录存在 `.hypo-research.toml`，可直接读取 `project.main_file` 作为默认输入文件。
+
 ## Parameters
 
 $ARGUMENTS

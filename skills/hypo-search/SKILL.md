@@ -29,3 +29,11 @@ uv run hypo-research search "<query>" \
    - 找到 X 篇论文
    - 列出 Top 5（标题 + 年份 + venue）
    - 如果有 auto-verify 问题，简要提及
+
+## Config Support
+
+如果项目根目录存在 `.hypo-research.toml`，可复用：
+
+- `survey.default_topic`
+- `survey.max_results`
+- `survey.sources`

@@ -53,6 +53,56 @@ uv sync
 - `uv run hypo-research lint --fix --no-dry-run --backup paper.tex`
 - `uv run hypo-research lint --fix --rules L01,L04 paper.tex`
 
+## 项目配置文件
+
+Hypo-Research 支持项目根目录下的 `.hypo-research.toml`。
+
+初始化：
+
+```bash
+uv run hypo-research init
+uv run hypo-research init --dir ./paper
+```
+
+优先级：
+
+- CLI 参数
+- `.hypo-research.toml`
+- 环境变量
+- 内置默认值
+
+常见字段：
+
+- `[project] main_file / bib_files / src_dir`
+- `[lint] disabled_rules / fix_rules`
+- `[verify] timeout / skip_keys / max_concurrent`
+- `[survey] default_topic / max_results / sources`
+
+## 项目配置文件
+
+Hypo-Research 支持项目根目录下的 `.hypo-research.toml`。
+
+初始化：
+
+```bash
+uv run hypo-research init
+uv run hypo-research init --dir ./paper
+```
+
+优先级：
+
+- CLI 参数
+- `.hypo-research.toml`
+- 环境变量
+- 内置默认值
+
+常见字段：
+
+- `[project] main_file / bib_files / src_dir`
+- `[lint] disabled_rules / fix_rules`
+- `[verify] timeout / skip_keys / max_concurrent`
+- `[survey] default_topic / max_results / sources`
+
 ## 在 Codex CLI 中使用
 
 执行 `./install-skills.sh` 后，可直接使用：

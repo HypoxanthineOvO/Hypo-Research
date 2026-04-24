@@ -14,6 +14,8 @@ license: MIT
 
 从种子论文出发，通过引用 / 被引关系发现相关论文。输出与 `/hypo-survey` 格式兼容，可直接传给 `/hypo-screen` 做分类。
 
+如果项目根目录存在 `.hypo-research.toml`，可复用其中的项目级路径约定和 API 相关默认配置。
+
 ## 参数
 
 $ARGUMENTS

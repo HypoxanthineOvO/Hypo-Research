@@ -34,6 +34,15 @@ export SEMANTIC_SCHOLAR_API_KEY="your-key-here"
 # 申请: https://www.semanticscholar.org/product/api#api-key-form
 ```
 
+项目级配置文件也支持：
+
+```bash
+uv run hypo-research init
+uv run hypo-research init --dir ./paper
+```
+
+优先级：CLI 参数 > `.hypo-research.toml` > 环境变量 > 内置默认值。
+
 ---
 
 ## Skills
@@ -303,6 +312,33 @@ uv run hypo-research lint --fix --no-dry-run --backup paper.tex
 uv run hypo-research lint --fix --rules L01,L04 paper.tex
 ```
 
+#### Project Config
+
+```toml
+[project]
+main_file = "main.tex"
+bib_files = ["refs.bib", "extra.bib"]
+
+[lint]
+disabled_rules = ["L09", "L10"]
+fix_rules = ["L01", "L04"]
+
+[verify]
+timeout = 60
+skip_keys = ["draft2025"]
+
+[survey]
+default_topic = "FHE accelerator"
+sources = ["s2", "arxiv"]
+```
+
+```bash
+uv run hypo-research init
+uv run hypo-research lint
+uv run hypo-research verify
+uv run hypo-research search
+```
+
 #### Citation Verification
 
 ```bash
@@ -333,6 +369,23 @@ uv run hypo-research lint --stats paper.tex | jq '.chapter_stats'
 uv run hypo-research lint --stats paper.tex | jq '.paragraph_pairs'
 uv run hypo-research lint --stats paper.tex | jq '.orphan_paragraphs'
 ```
+
+#### Project Config
+
+```bash
+# Initialize .hypo-research.toml in the current directory
+uv run hypo-research init
+
+# Or initialize a specific paper directory
+uv run hypo-research init --dir ./paper
+
+# Then use config-driven defaults for main_file / bib_files / rules / query
+uv run hypo-research lint
+uv run hypo-research verify
+uv run hypo-research search
+```
+
+Priority: CLI arguments > `.hypo-research.toml` > environment variables > built-in defaults.
 
 ---
 
@@ -384,12 +437,26 @@ Skills 遵循 [Agent Skills 开放标准](https://github.com/agentskills/agentsk
 ```text
 src/hypo_research/writing/
 ├── __init__.py
+├── config.py         # .hypo-research.toml loading and init helpers
+├── project.py        # Multi-file LaTeX project resolution
+├── fixer.py          # Lint auto-fix generation and application
 ├── stats.py          # TexStats: labels, refs, floats, sections, chapter_stats, paragraph_pairs
 ├── bib_parser.py     # BibEntryInfo: .bib file parsing
 └── verify.py         # Citation verification via S2/OpenAlex
 ```
 
 ## ⚙️ 配置说明
+
+### 项目配置文件
+
+项目根目录可选放置 `.hypo-research.toml`：
+
+```bash
+uv run hypo-research init
+uv run hypo-research init --dir ./paper
+```
+
+优先级：CLI 参数 > `.hypo-research.toml` > 环境变量 > 内置默认值。
 
 ### Semantic Scholar API Key
 

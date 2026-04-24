@@ -15,6 +15,8 @@ license: MIT
 
 脚本负责联网核验引用是否存在、元数据是否匹配；Agent 负责解释 mismatch / not_found 的含义，并在提供 `.tex` 路径时判断引用上下文是否准确。
 
+如果项目根目录存在 `.hypo-research.toml`，可直接读取 `project.bib_files`、`verify.timeout`、`verify.skip_keys`、`verify.s2_api_key` 等默认值。
+
 ## 参数
 
 $ARGUMENTS
@@ -44,6 +46,8 @@ uv run hypo-research verify --stats <bib> --tex <tex> --keys <keys>
 uv run hypo-research verify --stats --tex main.tex
 uv run hypo-research verify --stats --project-dir ./paper
 ```
+
+也可以通过 `.hypo-research.toml` 预先配置默认 `bib_files`、`timeout` 和 `skip_keys`。
 
 2. 解析 JSON 中的 `results`：
    - `verified`：记录为已确认，无需动作
@@ -81,3 +85,13 @@ uv run hypo-research verify --stats --project-dir ./paper
 - 对年份 mismatch，说明本地值和远程值。
 - 对 venue mismatch，先判断是不是简称 vs 全称差异，避免误报。
 - 如果用户想修 `.bib`，只自动改明确无争议的字段；不要擅自删除条目。
+
+## Config Support
+
+如果项目根目录存在 `.hypo-research.toml`，优先读取：
+
+- `project.bib_files`
+- `verify.s2_api_key`
+- `verify.timeout`
+- `verify.skip_keys`
+- `verify.max_concurrent`

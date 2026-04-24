@@ -185,6 +185,10 @@ async def verify_bib(
     tex_path: str | Path | None = None,
     project: TexProject | None = None,
     keys: list[str] | None = None,
+    skip_keys: list[str] | None = None,
+    s2_api_key: str | None = None,
+    timeout: int = 30,
+    max_concurrent: int | None = None,
     s2_source: SemanticScholarSource | None = None,
     openalex_source: OpenAlexSource | None = None,
     progress_callback: Any | None = None,
@@ -210,13 +214,18 @@ async def verify_bib(
         tex_path=tex_path,
         project=project,
         keys=keys,
+        skip_keys=skip_keys,
     )
 
     owns_s2 = s2_source is None
     owns_openalex = openalex_source is None
-    semantic_scholar = s2_source or SemanticScholarSource()
-    openalex = openalex_source or OpenAlexSource()
-    max_concurrency = 5 if getattr(semantic_scholar, "api_key", None) else 1
+    semantic_scholar = s2_source or SemanticScholarSource(api_key=s2_api_key, timeout=timeout)
+    openalex = openalex_source or OpenAlexSource(timeout=timeout)
+    max_concurrency = (
+        max_concurrent
+        if max_concurrent is not None
+        else (5 if getattr(semantic_scholar, "api_key", None) else 1)
+    )
     semaphore = asyncio.Semaphore(max_concurrency)
 
     async def verify_single(entry: BibEntryInfo) -> VerificationResult:
@@ -503,6 +512,7 @@ def _select_entries(
     tex_path: str | Path | None,
     project: TexProject | None,
     keys: list[str] | None,
+    skip_keys: list[str] | None,
 ) -> tuple[list[BibEntryInfo], list[str]]:
     skipped: list[str] = []
     entries_by_key = {entry.key: entry for entry in entries}
@@ -522,6 +532,12 @@ def _select_entries(
     if keys is not None:
         requested_keys = {key.strip() for key in keys if key.strip()}
         selected_keys = requested_keys if selected_keys is None else selected_keys & requested_keys
+    if skip_keys is not None:
+        skip_key_set = {key.strip() for key in skip_keys if key.strip()}
+        if selected_keys is None:
+            selected_keys = {entry.key for entry in entries} - skip_key_set
+        else:
+            selected_keys -= skip_key_set
 
     selected_entries = entries
     if selected_keys is not None:
