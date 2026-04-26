@@ -25,6 +25,7 @@ def make_paper(
     *,
     matched_queries: list[str] | None = None,
     relevance_score: int | None = None,
+    overall_score: float | None = None,
     relevance_reason: str | None = None,
     verification: str = "single_source",
 ) -> PaperResult:
@@ -44,6 +45,7 @@ def make_paper(
         verification=verification,
         matched_queries=matched_queries,
         relevance_score=relevance_score,
+        overall_score=overall_score,
         relevance_reason=relevance_reason,
     )
 
@@ -64,6 +66,7 @@ def test_paper_result_new_fields_serialize(tmp_path: Path) -> None:
     paper = make_paper(
         "Paper One",
         matched_queries=["q1", "q2"],
+        overall_score=8.5,
         relevance_score=4,
         relevance_reason="Highly relevant",
     )
@@ -72,6 +75,7 @@ def test_paper_result_new_fields_serialize(tmp_path: Path) -> None:
 
     payload = json.loads((output_dir / "results.json").read_text(encoding="utf-8"))
     assert payload[0]["matched_queries"] == ["q1", "q2"]
+    assert payload[0]["overall_score"] == 8.5
     assert payload[0]["relevance_score"] == 4
     assert payload[0]["relevance_reason"] == "Highly relevant"
     assert payload[0]["sources"] == ["semantic_scholar"]

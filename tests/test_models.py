@@ -25,6 +25,8 @@ def test_paper_result_round_trip() -> None:
         url="https://www.semanticscholar.org/paper/abc123",
         citation_count=42,
         reference_count=30,
+        overall_score=8.5,
+        relevance_score=9.0,
         source_api="semantic_scholar",
         sources=["semantic_scholar"],
         verification=VerificationLevel.SINGLE_SOURCE,
@@ -37,6 +39,8 @@ def test_paper_result_round_trip() -> None:
     assert restored.verification is VerificationLevel.SINGLE_SOURCE
     assert hasattr(restored, "abstract")
     assert restored.abstract is None
+    assert restored.overall_score == 8.5
+    assert restored.relevance_score == 9.0
 
 
 def test_search_params_defaults() -> None:

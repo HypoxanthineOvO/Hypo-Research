@@ -18,6 +18,7 @@ from rich.table import Table
 from hypo_research.cite import CitationTraverser
 from hypo_research.core.models import (
     ExpansionTrace,
+    PaperResult,
     QueryVariant,
     SearchParams,
     SearchResult,
@@ -41,6 +42,7 @@ from hypo_research.meeting import (
     list_templates,
 )
 from hypo_research.output.json_output import write_search_output
+from hypo_research.output.markdown_report import generate_report
 from hypo_research.survey.targeted import TargetedSearch, slugify_query
 from hypo_research.writing.bib_parser import parse_bib, parse_bib_files
 from hypo_research.writing.check import check_exit_code, render_check_report, run_check
@@ -749,8 +751,10 @@ def glossary_search(keyword: str) -> None:
 @click.option("--fields", multiple=True, help="Fields of study filter")
 @click.option(
     "--sort",
-    type=click.Choice(["relevance", "citation_count", "year"]),
-    default="relevance",
+    type=click.Choice(["all", "overall", "citations", "relevance", "time"]),
+    default="all",
+    show_default=True,
+    help="Markdown ranking view to render.",
 )
 @click.option("--output-dir", type=str, default=None, help="Override output directory")
 @click.option(
@@ -887,7 +891,7 @@ def search(
         year_range=(year_start, year_end) if year_start is not None else None,
         fields_of_study=list(fields) or None,
         max_results=effective_max_results,
-        sort_by=sort,
+        sort_by="relevance",
     )
 
     console = Console()
@@ -938,6 +942,16 @@ def search(
             ),
         )
 
+    _rewrite_markdown_report(
+        papers=result.papers,
+        meta=result.meta,
+        output_dir=Path(result.output_dir),
+        ranking_view=sort,
+        no_hooks=no_hooks,
+        no_report=no_report,
+        console=console,
+    )
+
     table = Table(title="Search Results")
     table.add_column("#", justify="right")
     table.add_column("Title")
@@ -959,6 +973,37 @@ def search(
 
     console.print(table)
     console.print(f"[bold]Output directory:[/bold] {result.output_dir}")
+
+
+def _rewrite_markdown_report(
+    *,
+    papers: list[PaperResult],
+    meta: SurveyMeta,
+    output_dir: Path,
+    ranking_view: str,
+    no_hooks: bool,
+    no_report: bool,
+    console: Console,
+) -> None:
+    """Rewrite results.md with the requested ranking view."""
+    if no_hooks or no_report:
+        return
+    if not isinstance(meta, SurveyMeta):
+        return
+    if ranking_view == "overall" and not any(
+        getattr(paper, "overall_score", None) is not None for paper in papers
+    ):
+        console.print("Overall ranking has no Agent scores; falling back to citations.")
+    if ranking_view == "relevance" and not any(
+        getattr(paper, "relevance_score", None) is not None for paper in papers
+    ):
+        console.print("Relevance ranking requires Agent scores; no relevance view generated.")
+    generate_report(
+        papers,
+        meta,
+        output_dir / "results.md",
+        ranking_view=ranking_view,  # type: ignore[arg-type]
+    )
 
 
 @main.command()

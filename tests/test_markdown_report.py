@@ -22,15 +22,22 @@ def make_paper(
     verification: VerificationLevel,
     metadata_issues: list[MetadataIssue] | None = None,
     abstract: str | None = None,
+    year: int | None = 2023,
+    citation_count: int | None = None,
+    overall_score: float | None = None,
+    relevance_score: float | None = None,
 ) -> PaperResult:
     return PaperResult(
         title=title,
         authors=["Alice Smith"],
-        year=2023,
+        year=year,
         venue="ISSCC",
         abstract=abstract if abstract is not None else f"Abstract for {title}",
         doi="10.1234/example",
         url="https://example.com",
+        citation_count=citation_count,
+        overall_score=overall_score,
+        relevance_score=relevance_score,
         source_api="semantic_scholar",
         sources=["semantic_scholar", "openalex"] if verification is VerificationLevel.VERIFIED else ["semantic_scholar"],
         verification=verification,
@@ -189,3 +196,130 @@ def test_generate_report_for_citation_graph_mode(tmp_path: Path) -> None:
     assert "Mode**: Citation graph traversal" in content
     assert "Seeds**: Cinnamon, CraterLake" in content
     assert "| citations | 7 |" in content
+
+
+def test_generate_report_includes_all_ranking_sections_with_scores(tmp_path: Path) -> None:
+    output_path = tmp_path / "results.md"
+    papers = [
+        make_paper(
+            title="TFHE-rs: A Pure-Rust Implementation of Fully Homomorphic Encryption",
+            verification=VerificationLevel.VERIFIED,
+            year=2022,
+            citation_count=180,
+            overall_score=9.2,
+            relevance_score=7.1,
+        ),
+        make_paper(
+            title="CryptoNAS: Private Inference on a Budget",
+            verification=VerificationLevel.VERIFIED,
+            year=2024,
+            citation_count=245,
+            overall_score=8.7,
+            relevance_score=9.5,
+        ),
+    ]
+
+    generate_report(papers, make_meta(), output_path)
+
+    content = output_path.read_text(encoding="utf-8")
+    assert "## 📊 综合排序（Overall Ranking）" in content
+    assert "## 📈 引用数排序（By Citations）" in content
+    assert "## 🎯 相关性排序（By Relevance）" in content
+    assert "## 📅 时间线（Timeline）" in content
+    assert "| 1 | TFHE-rs" in content
+    assert "#2 (180)" in content
+    assert "#1 (245)" in content
+
+
+def test_generate_report_fallback_outputs_overall_and_timeline(tmp_path: Path) -> None:
+    output_path = tmp_path / "results.md"
+    papers = [
+        make_paper(
+            title="Low Citation",
+            verification=VerificationLevel.SINGLE_SOURCE,
+            citation_count=1,
+        ),
+        make_paper(
+            title="High Citation",
+            verification=VerificationLevel.SINGLE_SOURCE,
+            citation_count=9,
+        ),
+    ]
+
+    generate_report(papers, make_meta(), output_path)
+
+    content = output_path.read_text(encoding="utf-8")
+    assert "## 📊 综合排序（按引用数 fallback）" in content
+    assert "## 📅 时间线（Timeline）" in content
+    assert "## 📈 引用数排序（By Citations）" not in content
+    assert "## 🎯 相关性排序（By Relevance）" not in content
+
+
+def test_generate_report_timeline_groups_by_year(tmp_path: Path) -> None:
+    output_path = tmp_path / "results.md"
+    papers = [
+        make_paper(
+            title="Paper 2024",
+            verification=VerificationLevel.VERIFIED,
+            year=2024,
+            citation_count=1,
+        ),
+        make_paper(
+            title="Paper 2022",
+            verification=VerificationLevel.VERIFIED,
+            year=2022,
+            citation_count=1,
+        ),
+    ]
+
+    generate_report(papers, make_meta(), output_path, ranking_view="time")
+
+    content = output_path.read_text(encoding="utf-8")
+    assert "### 2022" in content
+    assert "### 2024" in content
+    assert content.index("### 2022") < content.index("### 2024")
+
+
+def test_generate_report_internal_references_format(tmp_path: Path) -> None:
+    output_path = tmp_path / "results.md"
+    papers = [
+        make_paper(
+            title="Overall First",
+            verification=VerificationLevel.VERIFIED,
+            citation_count=10,
+            overall_score=10,
+            relevance_score=5,
+        ),
+        make_paper(
+            title="Citation First",
+            verification=VerificationLevel.VERIFIED,
+            citation_count=20,
+            overall_score=9,
+            relevance_score=8,
+        ),
+    ]
+
+    generate_report(papers, make_meta(), output_path, ranking_view="citations")
+
+    content = output_path.read_text(encoding="utf-8")
+    assert "| 1 | Citation First | 20 | #2 | #1 | 2023 |" in content
+
+
+def test_generate_report_truncates_ranking_title(tmp_path: Path) -> None:
+    output_path = tmp_path / "results.md"
+    long_title = "A" * 70
+    generate_report(
+        [
+            make_paper(
+                title=long_title,
+                verification=VerificationLevel.VERIFIED,
+                citation_count=1,
+                overall_score=8,
+            )
+        ],
+        make_meta(),
+        output_path,
+    )
+
+    content = output_path.read_text(encoding="utf-8")
+    assert f"{'A' * 60}..." in content

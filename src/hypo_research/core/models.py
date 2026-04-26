@@ -39,7 +39,8 @@ class PaperResult(BaseModel):
     matched_queries: list[str] | None = None
     seed_papers: list[str] | None = None
     discovery_paths: list[str] | None = None
-    relevance_score: int | None = None
+    overall_score: float | None = None
+    relevance_score: float | None = None
     relevance_reason: str | None = None
     metadata_issues: list[MetadataIssue] | None = None
     raw_response: dict = Field(default_factory=dict, repr=False)
