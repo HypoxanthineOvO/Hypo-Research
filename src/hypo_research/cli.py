@@ -48,6 +48,23 @@ from hypo_research.presubmit import (
     render_presubmit_report,
     run_presubmit,
 )
+from hypo_research.review.parser import PaperStructure, parse_paper
+from hypo_research.review.report import (
+    ReviewReport,
+    SingleReview,
+    generate_report_json as generate_review_report_json,
+    generate_report_markdown as generate_review_report_markdown,
+)
+from hypo_research.review.reviewers import (
+    DEFAULT_PANEL,
+    FULL_PANEL,
+    REVIEWERS,
+    SEVERITY_MODIFIERS,
+    ReviewerConfig,
+    Severity as ReviewSeverity,
+    get_reviewer_prompt,
+)
+from hypo_research.review.venues import VENUES as REVIEW_VENUES
 from hypo_research.survey.targeted import TargetedSearch, slugify_query
 from hypo_research.writing.bib_parser import parse_bib, parse_bib_files
 from hypo_research.writing.check import check_exit_code, render_check_report, run_check
@@ -824,6 +841,237 @@ def _presubmit_exit_code(verdict: PresubmitVerdict) -> int:
     if verdict is PresubmitVerdict.WARNING:
         return 2
     return 0
+
+
+def _normalize_reviewer_ids(raw_values: tuple[str, ...] | str | None) -> list[str]:
+    """Normalize reviewer ids from comma-separated or space-separated CLI input."""
+    if raw_values is None:
+        return []
+    values = (raw_values,) if isinstance(raw_values, str) else raw_values
+    reviewer_ids: list[str] = []
+    for raw_value in values:
+        if isinstance(raw_value, (tuple, list)):
+            reviewer_ids.extend(_normalize_reviewer_ids(tuple(str(item) for item in raw_value)))
+            continue
+        text_value = str(raw_value).strip()
+        if text_value.startswith(("(", "[")) and text_value.endswith((")", "]")):
+            try:
+                parsed = ast.literal_eval(text_value)
+            except (SyntaxError, ValueError):
+                parsed = None
+            if isinstance(parsed, (tuple, list)):
+                reviewer_ids.extend(_normalize_reviewer_ids(tuple(str(item) for item in parsed)))
+                continue
+        for candidate in text_value.replace(",", " ").split():
+            cleaned = candidate.strip().lower()
+            if cleaned:
+                reviewer_ids.append(cleaned)
+    return list(dict.fromkeys(reviewer_ids))
+
+
+def _resolve_review_panel(panel: str, reviewers: tuple[str, ...] | str | None) -> list[str]:
+    selected = _normalize_reviewer_ids(reviewers)
+    if selected:
+        unknown = [reviewer_id for reviewer_id in selected if reviewer_id not in REVIEWERS]
+        if unknown:
+            choices = ", ".join(REVIEWERS)
+            raise click.ClickException(f"Unknown reviewer id: {', '.join(unknown)}. Available: {choices}")
+        return selected
+    if panel == "full":
+        return list(FULL_PANEL)
+    return list(DEFAULT_PANEL)
+
+
+def _build_review_scaffold(
+    paper: PaperStructure,
+    reviewer_ids: list[str],
+    severity: ReviewSeverity,
+    venue: str | None,
+) -> ReviewReport:
+    """Build a structured report shell; Agent personas fill semantic judgments."""
+    severity_label = SEVERITY_MODIFIERS[severity]["label"]
+    reviews: list[SingleReview] = []
+    structural_weaknesses = _structural_review_weaknesses(paper)
+    structural_strengths = _structural_review_strengths(paper)
+    for reviewer_id in reviewer_ids:
+        reviewer = REVIEWERS[reviewer_id]
+        reviews.append(
+            SingleReview(
+                reviewer_id=reviewer.id,
+                reviewer_name=reviewer.name,
+                reviewer_emoji=reviewer.emoji,
+                reviewer_role=reviewer.role,
+                severity_label=severity_label,
+                summary="CLI 已完成论文解析和审稿 prompt 生成；该条审稿意见需要 Agent 按角色独立填写。",
+                strengths=structural_strengths,
+                weaknesses=structural_weaknesses,
+                questions=["请 Agent 基于该角色 prompt 阅读全文后补充作者问题。"],
+                missing_references=[],
+                score=None,
+                decision=None,
+                confidence=None,
+            )
+        )
+    return ReviewReport(
+        paper_title=paper.title,
+        venue=venue,
+        severity=severity.value,
+        panel=reviewer_ids,
+        reviews=reviews,
+    )
+
+
+def _structural_review_strengths(paper: PaperStructure) -> list[str]:
+    strengths: list[str] = []
+    if paper.abstract:
+        strengths.append("解析到完整 abstract，可作为审稿 summary 的基础。")
+    if paper.sections:
+        strengths.append(f"解析到 {len(paper.sections)} 个章节，论文结构可供逐节审查。")
+    if paper.figures or paper.tables:
+        strengths.append(f"解析到 {len(paper.figures)} 个 figure 和 {len(paper.tables)} 个 table，可检查图表叙事。")
+    return strengths or ["解析器已提取全文 raw_text，可供 Agent 直接审稿。"]
+
+
+def _structural_review_weaknesses(paper: PaperStructure) -> list[str]:
+    weaknesses: list[str] = []
+    if not paper.abstract:
+        weaknesses.append("[Major] 未识别到 abstract，可能影响审稿人快速判断贡献。")
+    if not paper.sections:
+        weaknesses.append("[Major] 未识别到章节结构，请确认输入文件是否为完整论文。")
+    if not paper.references:
+        weaknesses.append("[Major] 未识别到 references，Related Work 和引用完整性需要人工确认。")
+    if not paper.claims:
+        weaknesses.append("[Minor] 未识别到显式 claim 句子，可能需要人工检查 contribution 表述是否清晰。")
+    return weaknesses or ["[Minor] CLI 未发现明显结构缺失；语义问题需由 Agent 审稿判断。"]
+
+
+def _paper_structure_payload(paper: PaperStructure) -> dict:
+    return asdict(paper)
+
+
+def _render_review_prompt_packet(
+    paper: PaperStructure,
+    reviewer_ids: list[str],
+    severity: ReviewSeverity,
+    venue: str | None,
+    expert2_domain: str | None,
+) -> str:
+    prompts = []
+    for reviewer_id in reviewer_ids:
+        reviewer = REVIEWERS[reviewer_id]
+        prompts.append(
+            f"## {reviewer.emoji} {reviewer.name} — {reviewer.role}\n\n"
+            f"{get_reviewer_prompt(reviewer, severity, paper, venue=venue, expert2_domain=expert2_domain)}"
+        )
+    return "\n\n---\n\n".join(prompts)
+
+
+@main.command()
+@click.argument("paper_path", required=False, type=click.Path(path_type=Path))
+@click.option("--venue", default=None, help="Review venue id, e.g. dac, neurips, tcas1.")
+@click.option(
+    "--panel",
+    type=click.Choice(["default", "full"]),
+    default="default",
+    show_default=True,
+    help="Reviewer panel preset.",
+)
+@click.option(
+    "--reviewers",
+    cls=OptionEatAll,
+    default=None,
+    help="Reviewer ids. Accepts comma-separated or space-separated values after one --reviewers flag.",
+)
+@click.option(
+    "--severity",
+    type=click.Choice([item.value for item in ReviewSeverity]),
+    default=ReviewSeverity.STANDARD.value,
+    show_default=True,
+    help="Review strictness.",
+)
+@click.option("--expert2-domain", default=None, help="Adjacent domain context for Expert-2.")
+@click.option("--domain", default=None, help="Override inferred paper domain.")
+@click.option("--output", type=click.Path(dir_okay=False, path_type=Path), default=None, help="Write Markdown report to file.")
+@click.option("--json", "json_mode", is_flag=True, default=False, help="Print JSON ReviewReport payload.")
+@click.option("--parse-only", is_flag=True, default=False, help="Only parse the paper and print PaperStructure JSON.")
+@click.option("--list-reviewers", is_flag=True, default=False, help="List available reviewer personas.")
+@click.option("--list-venues", is_flag=True, default=False, help="List available review venues.")
+@click.option("--prompts", is_flag=True, default=False, help="Print reviewer prompts instead of the report scaffold.")
+def review(
+    paper_path: Path | None,
+    venue: str | None,
+    panel: str,
+    reviewers: tuple[str, ...] | str | None,
+    severity: str,
+    expert2_domain: str | None,
+    domain: str | None,
+    output: Path | None,
+    json_mode: bool,
+    parse_only: bool,
+    list_reviewers: bool,
+    list_venues: bool,
+    prompts: bool,
+) -> None:
+    """Parse a paper and prepare a multi-reviewer simulated review scaffold."""
+    if list_reviewers:
+        for reviewer in REVIEWERS.values():
+            default_marker = "default" if reviewer.default else "optional"
+            scoring = "scoring" if reviewer.scoring else "no-score"
+            click.echo(f"{reviewer.id}\t{reviewer.emoji} {reviewer.name}\t{reviewer.role}\t{default_marker}\t{scoring}")
+        return
+
+    if list_venues:
+        for venue_profile in REVIEW_VENUES.values():
+            click.echo(
+                f"{venue_profile.id}\t{venue_profile.name}\t{venue_profile.category}\t"
+                f"{venue_profile.typical_accept_rate or '-'}\t{venue_profile.page_limit or '-'}"
+            )
+        return
+
+    if paper_path is None:
+        raise click.UsageError("PAPER_PATH is required unless --list-reviewers or --list-venues is used")
+    if venue is not None and venue.lower() not in REVIEW_VENUES:
+        choices = ", ".join(sorted(REVIEW_VENUES))
+        raise click.ClickException(f"Unknown review venue '{venue}'. Available: {choices}")
+
+    try:
+        paper = parse_paper(paper_path.as_posix())
+    except Exception as exc:
+        raise click.ClickException(str(exc)) from exc
+    if domain:
+        paper.inferred_domain = domain
+
+    if parse_only:
+        click.echo(json.dumps(_paper_structure_payload(paper), indent=2, ensure_ascii=False))
+        return
+
+    reviewer_ids = _resolve_review_panel(panel, reviewers)
+    review_severity = ReviewSeverity(severity)
+    venue_text = None
+    if venue is not None:
+        venue_profile = REVIEW_VENUES[venue.lower()]
+        venue_text = f"{venue_profile.name}: {venue_profile.review_criteria}"
+
+    if prompts:
+        rendered = _render_review_prompt_packet(
+            paper,
+            reviewer_ids,
+            review_severity,
+            venue_text,
+            expert2_domain,
+        )
+    else:
+        report = _build_review_scaffold(paper, reviewer_ids, review_severity, venue)
+        rendered = (
+            json.dumps(generate_review_report_json(report), indent=2, ensure_ascii=False)
+            if json_mode
+            else generate_review_report_markdown(report)
+        )
+
+    if output is not None:
+        output.write_text(rendered, encoding="utf-8")
+    else:
+        click.echo(rendered, nl=not rendered.endswith("\n"))
 
 
 @main.command()

@@ -12,6 +12,9 @@ dependencies = [
     "feedparser>=6.0",
 ]
 
+[project.optional-dependencies]
+review = ["pymupdf>=1.24.0"]
+
 [dependency-groups]
 dev = [
     "pytest>=8.0",
