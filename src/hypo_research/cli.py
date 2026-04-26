@@ -43,6 +43,11 @@ from hypo_research.meeting import (
 )
 from hypo_research.output.json_output import write_search_output
 from hypo_research.output.markdown_report import generate_report
+from hypo_research.presubmit import (
+    PresubmitVerdict,
+    render_presubmit_report,
+    run_presubmit,
+)
 from hypo_research.survey.targeted import TargetedSearch, slugify_query
 from hypo_research.writing.bib_parser import parse_bib, parse_bib_files
 from hypo_research.writing.check import check_exit_code, render_check_report, run_check
@@ -771,6 +776,54 @@ def glossary_search(keyword: str) -> None:
     aliases = ", ".join(term.aliases) if term.aliases else "-"
     category = f" [{term.category}]" if term.category else ""
     click.echo(f"{term.keyword}{category}: {term.canonical} (aliases: {aliases})")
+
+
+@main.command()
+@click.argument("tex_root", type=click.Path(exists=True, path_type=Path))
+@click.option("--venue", default=None, help="Venue profile, e.g. ieee_journal.")
+@click.option(
+    "--skip",
+    "skip_stages",
+    multiple=True,
+    type=click.Choice(["check", "lint", "verify"]),
+    help="Stage to skip. Can be used multiple times.",
+)
+@click.option("--bib", "bib_file", default=None, type=click.Path(path_type=Path), help="BibTeX file for verify stage.")
+@click.option("--output", type=click.Path(dir_okay=False, path_type=Path), default=None, help="Write Markdown report to file.")
+@click.option("--json", "json_mode", is_flag=True, default=False, help="Print JSON payload.")
+def presubmit(
+    tex_root: Path,
+    venue: str | None,
+    skip_stages: tuple[str, ...],
+    bib_file: Path | None,
+    output: Path | None,
+    json_mode: bool,
+) -> None:
+    """Run the full pre-submission check pipeline."""
+    result = run_presubmit(
+        tex_root.as_posix(),
+        venue=venue,
+        skip_stages=list(skip_stages),
+        bib_file=bib_file.as_posix() if bib_file is not None else None,
+    )
+    rendered = (
+        json.dumps(result.to_payload(), indent=2, ensure_ascii=False)
+        if json_mode
+        else render_presubmit_report(result)
+    )
+    if output is not None:
+        output.write_text(rendered, encoding="utf-8")
+    else:
+        click.echo(rendered, nl=not rendered.endswith("\n"))
+    raise click.exceptions.Exit(_presubmit_exit_code(result.verdict))
+
+
+def _presubmit_exit_code(verdict: PresubmitVerdict) -> int:
+    if verdict is PresubmitVerdict.FAIL:
+        return 1
+    if verdict is PresubmitVerdict.WARNING:
+        return 2
+    return 0
 
 
 @main.command()

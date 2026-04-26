@@ -14,6 +14,7 @@ from hypo_research.core.models import (
     VerificationLevel,
 )
 from hypo_research.output.markdown_report import generate_report
+from hypo_research.output.summary import abstract_brief, build_survey_summary
 
 
 def make_paper(
@@ -80,7 +81,7 @@ def test_generate_report_basic_content(tmp_path: Path) -> None:
     generate_report(papers, make_meta(), output_path)
 
     content = output_path.read_text(encoding="utf-8")
-    assert "# Literature Survey Report" in content
+    assert "# Survey Report: cryogenic computing GPU" in content
     assert "Verified Paper" in content
     assert "Single Source Paper" in content
     assert "Semantic Scholar, OpenAlex, arXiv" in content
@@ -112,6 +113,206 @@ def test_generate_report_includes_statistics_table(tmp_path: Path) -> None:
     assert "| Source | Papers |" in content
     assert "| Semantic Scholar | 4 |" in content
     assert "| **After dedup** | **1** |" in content
+
+
+def test_generate_report_overview_contains_count_and_year_span(tmp_path: Path) -> None:
+    output_path = tmp_path / "results.md"
+    papers = [
+        make_paper(
+            title="Paper 2022",
+            verification=VerificationLevel.VERIFIED,
+            year=2022,
+        ),
+        make_paper(
+            title="Paper 2024",
+            verification=VerificationLevel.VERIFIED,
+            year=2024,
+        ),
+    ]
+
+    generate_report(papers, make_meta(), output_path)
+
+    content = output_path.read_text(encoding="utf-8")
+    assert "## 📋 概览" in content
+    assert "- **检索论文数**：2 篇" in content
+    assert "- **时间跨度**：2022 – 2024" in content
+
+
+def test_generate_report_overview_score_distribution_when_scored(tmp_path: Path) -> None:
+    output_path = tmp_path / "results.md"
+    papers = [
+        make_paper(
+            title="High Score",
+            verification=VerificationLevel.VERIFIED,
+            overall_score=9.0,
+        ),
+        make_paper(
+            title="Low Score",
+            verification=VerificationLevel.VERIFIED,
+            overall_score=7.0,
+        ),
+    ]
+
+    generate_report(papers, make_meta(), output_path)
+
+    content = output_path.read_text(encoding="utf-8")
+    assert "- **综合评分分布**：最高 9.0 / 最低 7.0 / 平均 8.0" in content
+
+
+def test_generate_report_overview_skips_score_distribution_without_scores(tmp_path: Path) -> None:
+    output_path = tmp_path / "results.md"
+    papers = [
+        make_paper(title="No Score", verification=VerificationLevel.VERIFIED),
+    ]
+
+    generate_report(papers, make_meta(), output_path)
+
+    content = output_path.read_text(encoding="utf-8")
+    assert "综合评分分布" not in content
+
+
+def test_generate_report_overview_tables_and_timeline(tmp_path: Path) -> None:
+    output_path = tmp_path / "results.md"
+    papers = [
+        make_paper(
+            title="Overall First",
+            verification=VerificationLevel.VERIFIED,
+            year=2023,
+            citation_count=10,
+            overall_score=9.0,
+            abstract="This paper builds a fast accelerator. It has more details.",
+        ),
+        make_paper(
+            title="Citation First",
+            verification=VerificationLevel.VERIFIED,
+            year=2024,
+            citation_count=300,
+            overall_score=8.0,
+            abstract="This paper is highly cited.",
+        ),
+    ]
+
+    generate_report(papers, make_meta(), output_path)
+
+    content = output_path.read_text(encoding="utf-8")
+    assert "## 🏆 全部论文速览" in content
+    assert "## 📈 全部论文速览" in content
+    assert "## 📅 时间线速览" in content
+    assert "| 1 | Overall First | 9.0 | 10 | 2023 | This paper builds a fast accelerator. |" in content
+    assert "| 1 | Citation First | 300 | 8.0 | 2024 | This paper is highly cited. |" in content
+    assert "### 2024 (1 篇)" in content
+
+
+def test_abstract_brief_truncates_and_handles_empty() -> None:
+    assert abstract_brief(None) == "—"
+    assert abstract_brief("中" * 31) == f"{'中' * 30}..."
+    english = "A" * 90 + ". Second sentence."
+    assert abstract_brief(english) == f"{'A' * 80}..."
+
+
+def test_survey_summary_must_read_with_scores() -> None:
+    papers = [
+        make_paper(
+            title="High Score",
+            verification=VerificationLevel.VERIFIED,
+            citation_count=10,
+            overall_score=8.1,
+        ),
+        make_paper(
+            title="High Citation",
+            verification=VerificationLevel.VERIFIED,
+            citation_count=250,
+            overall_score=6.0,
+        ),
+        make_paper(
+            title="Normal",
+            verification=VerificationLevel.VERIFIED,
+            citation_count=50,
+            overall_score=7.0,
+        ),
+    ]
+
+    summary = build_survey_summary(papers)
+
+    assert {paper.title for paper in summary.must_read} == {"High Score", "High Citation"}
+
+
+def test_survey_summary_must_read_without_scores_uses_citation_threshold() -> None:
+    papers = [
+        make_paper(
+            title="High Citation",
+            verification=VerificationLevel.VERIFIED,
+            citation_count=250,
+        ),
+        make_paper(
+            title="Low Citation",
+            verification=VerificationLevel.VERIFIED,
+            citation_count=199,
+        ),
+    ]
+
+    summary = build_survey_summary(papers)
+
+    assert [paper.title for paper in summary.must_read] == ["High Citation"]
+
+
+def test_generate_report_reading_advice_changes_without_scores(tmp_path: Path) -> None:
+    output_path = tmp_path / "results.md"
+    papers = [
+        make_paper(
+            title="High Citation",
+            verification=VerificationLevel.VERIFIED,
+            citation_count=250,
+        )
+    ]
+
+    generate_report(papers, make_meta(), output_path)
+
+    content = output_path.read_text(encoding="utf-8")
+    assert "## 📖 阅读建议" in content
+    assert "必读论文（引用 ≥ 200）" in content
+    assert "1. 先读高引 Top 3，建立领域整体认知" in content
+
+
+def test_survey_summary_overview_limit_adapts_to_total() -> None:
+    small = [
+        make_paper(title=f"Small {index}", verification=VerificationLevel.VERIFIED)
+        for index in range(10)
+    ]
+    medium = [
+        make_paper(title=f"Medium {index}", verification=VerificationLevel.VERIFIED)
+        for index in range(11)
+    ]
+    large = [
+        make_paper(title=f"Large {index}", verification=VerificationLevel.VERIFIED)
+        for index in range(31)
+    ]
+
+    assert build_survey_summary(small).overview_limit == 10
+    assert build_survey_summary(medium).overview_limit == 10
+    assert build_survey_summary(large).overview_limit == 20
+
+
+def test_survey_summary_statistical_summary_mentions_years_and_median() -> None:
+    papers = [
+        make_paper(
+            title="Paper 2022",
+            verification=VerificationLevel.VERIFIED,
+            year=2022,
+            citation_count=10,
+        ),
+        make_paper(
+            title="Paper 2024",
+            verification=VerificationLevel.VERIFIED,
+            year=2024,
+            citation_count=30,
+        ),
+    ]
+
+    summary = build_survey_summary(papers)
+
+    assert "2022–2024 年" in summary.statistical_summary
+    assert "引用中位数 20" in summary.statistical_summary
 
 
 def test_generate_report_includes_expansion_info(tmp_path: Path) -> None:

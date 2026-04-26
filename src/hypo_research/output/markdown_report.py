@@ -13,6 +13,11 @@ from hypo_research.output.ranking import (
     has_overall_scores,
     has_relevance_scores,
 )
+from hypo_research.output.summary import (
+    SurveySummary,
+    abstract_brief,
+    build_survey_summary,
+)
 
 RankingView = Literal["all", "overall", "citations", "relevance", "time"]
 
@@ -28,7 +33,7 @@ def generate_report(
     title = (
         "# Citation Graph Expansion Report"
         if meta.mode == "citation_graph"
-        else "# Literature Survey Report"
+        else f"# Survey Report: {meta.query}"
     )
 
     lines: list[str] = [
@@ -44,6 +49,7 @@ def generate_report(
         "",
     ]
 
+    lines.extend(_render_survey_summary(papers))
     lines.extend(_render_ranking_views(papers, ranking_view=ranking_view))
     lines.extend(["## Results by Verification Status", ""])
 
@@ -82,6 +88,105 @@ def generate_report(
 
     output_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
     return output_path
+
+
+def _render_survey_summary(papers: list[PaperResult]) -> list[str]:
+    if not papers:
+        return []
+    summary = build_survey_summary(papers)
+    rankings = compute_rankings(papers)
+    limit = summary.overview_limit
+    overall_title = "全部论文速览" if summary.total <= 10 else f"Top {limit} 综合排序速览"
+    citation_title = "全部论文速览" if summary.total <= 10 else f"Top {limit} 高引论文速览"
+    lines: list[str] = [
+        "## 📋 概览",
+        "",
+        f"- **检索论文数**：{summary.total} 篇",
+        f"- **时间跨度**：{_format_year_span(summary)}",
+    ]
+    if summary.score_distribution is not None:
+        dist = summary.score_distribution
+        lines.append(
+            "- **综合评分分布**："
+            f"最高 {dist.max_score:.1f} / 最低 {dist.min_score:.1f} / 平均 {dist.avg_score:.1f}"
+        )
+    lines.extend(
+        [
+            f"- **高引论文**（≥100 次引用）：{summary.high_citation_count} 篇",
+            "",
+            "---",
+            "",
+            f"## 🏆 {overall_title}",
+            "",
+            "| # | 论文 | 综合分 | 引用 | 年份 | Abstract 概要 |",
+            "|---|------|--------|------|------|---------------|",
+        ]
+    )
+    for index, item in enumerate(rankings.overall[:limit], start=1):
+        lines.append(_overview_table_row(index, item.paper, include_score=True))
+    lines.extend(
+        [
+            "",
+            "---",
+            "",
+            f"## 📈 {citation_title}",
+            "",
+            "| # | 论文 | 引用 | 综合分 | 年份 | Abstract 概要 |",
+            "|---|------|------|--------|------|---------------|",
+        ]
+    )
+    for index, item in enumerate(rankings.by_citations[:limit], start=1):
+        lines.append(_citation_overview_table_row(index, item.paper))
+    lines.extend(["", "---", "", "## 📅 时间线速览", ""])
+    year_groups: dict[int | None, list[PaperResult]] = {}
+    for item in rankings.by_time:
+        year_groups.setdefault(item.year, []).append(item.paper)
+    for year, grouped in year_groups.items():
+        lines.extend([f"### {_format_year(year)} ({len(grouped)} 篇)", ""])
+        for paper in grouped[:limit]:
+            lines.append(f"- {_short_title(paper.title)} — {abstract_brief(paper.abstract)}")
+        lines.append("")
+    lines.extend(["---", "", *_render_reading_advice(summary), "---", ""])
+    return lines
+
+
+def _render_reading_advice(summary: SurveySummary) -> list[str]:
+    has_scores = summary.score_distribution is not None
+    lines = ["## 📖 阅读建议", ""]
+    title = "必读论文（综合分 ≥ 8.0 或引用 ≥ 200）" if has_scores else "必读论文（引用 ≥ 200）"
+    lines.extend([f"### {title}", ""])
+    if summary.must_read:
+        for paper in summary.must_read:
+            score = _format_score(paper.overall_score)
+            lines.append(
+                f"- **{_short_title(paper.title)}** ({_format_year(paper.year)}, "
+                f"综合 {score}, 引用 {paper.citation_count or 0}) — "
+                f"{abstract_brief(paper.abstract)}"
+            )
+    else:
+        lines.append("- 暂无符合自动规则的必读论文。")
+    if has_scores:
+        lines.extend(
+            [
+                "",
+                "### 推荐阅读顺序",
+                "1. 先读综合排序 Top 3，建立领域整体认知",
+                "2. 再看时间线最新 3 篇，了解前沿进展",
+                "3. 最后补充高引经典论文中尚未覆盖的",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                "",
+                "### 推荐阅读顺序",
+                "1. 先读高引 Top 3，建立领域整体认知",
+                "2. 再看最新 3 篇，了解前沿进展",
+                "3. 最后补充高引经典论文中尚未覆盖的",
+            ]
+        )
+    lines.extend(["", f"> 💡 {summary.statistical_summary}", ""])
+    return lines
 
 
 def _render_ranking_views(
@@ -359,6 +464,31 @@ def _truncate_abstract(abstract: str | None, limit: int = 500) -> str:
     if len(cleaned) <= limit:
         return cleaned
     return f"{cleaned[:limit]}..."
+
+
+def _overview_table_row(index: int, paper: PaperResult, *, include_score: bool) -> str:
+    score = _format_score(paper.overall_score) if include_score else "-"
+    return (
+        f"| {index} | {_escape_table(_short_title(paper.title))} | {score} | "
+        f"{paper.citation_count or 0} | {_format_year(paper.year)} | "
+        f"{_escape_table(abstract_brief(paper.abstract))} |"
+    )
+
+
+def _citation_overview_table_row(index: int, paper: PaperResult) -> str:
+    return (
+        f"| {index} | {_escape_table(_short_title(paper.title))} | "
+        f"{paper.citation_count or 0} | {_format_score(paper.overall_score)} | "
+        f"{_format_year(paper.year)} | {_escape_table(abstract_brief(paper.abstract))} |"
+    )
+
+
+def _format_year_span(summary: SurveySummary) -> str:
+    if summary.min_year is None or summary.max_year is None:
+        return "Unknown"
+    if summary.min_year == summary.max_year:
+        return str(summary.min_year)
+    return f"{summary.min_year} – {summary.max_year}"
 
 
 def _short_title(title: str, limit: int = 60) -> str:

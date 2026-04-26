@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin.json",
   "name": "hypo-research",
   "version": "0.4.0",
-  "description": "Academic research assistant toolkit for survey, search, screening, citation traversal, LaTeX lint/fix, bibliography verification, polishing, translation, check pipelines, and meeting minutes.",
+  "description": "Academic research assistant toolkit for survey, search, screening, citation traversal, LaTeX lint/fix, bibliography verification, polishing, translation, check and presubmit pipelines, and meeting minutes.",
   "author": "HypoxanthineOvO",
   "homepage": "https://github.com/HypoxanthineOvO/Hypo-Research",
   "repository": "https://github.com/HypoxanthineOvO/Hypo-Research",

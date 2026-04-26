@@ -25,6 +25,7 @@ uv sync
 | `/hypo-polish` | 学术英文润色 | 基于章节统计做全文扫描或定向润色 |
 | `/hypo-translate` | 双语翻译维护 | 维护中文注释与英文正文的同步 |
 | `/hypo-check` | 一键检查流水线 | 串联 lint、fix、verify 并输出聚合报告 |
+| `/hypo-presubmit` | 提交前检查 | 串联 check、lint、verify 并输出 PASS/WARNING/FAIL 报告 |
 | `/hypo-meeting` | 会议纪要 | 从 ASR 转写生成结构化学术会议纪要，并维护术语知识库 |
 
 ## 在 Claude Code 中使用
@@ -38,6 +39,7 @@ uv sync
 - `/hypo-polish path="paper.tex" mode=full`
 - `/hypo-translate path="paper.tex" mode=sync`
 - `/hypo-check path="paper.tex"`
+- `/hypo-presubmit path="paper.tex" venue=ieee_journal`
 - `/hypo-meeting transcript="meeting_asr.txt" type=group_meeting`
 
 多文件 LaTeX 项目也支持：
@@ -123,6 +125,7 @@ uv run hypo-research init --dir ./paper
 - `/hypo-polish` 或 `/prompts:hypo-polish`
 - `/hypo-translate` 或 `/prompts:hypo-translate`
 - `/hypo-check` 或 `/prompts:hypo-check`
+- `/hypo-presubmit` 或 `/prompts:hypo-presubmit`
 - `/hypo-meeting` 或 `/prompts:hypo-meeting`
 
 也可以直接用自然语言描述需求，让 Agent 结合 `AGENTS.md` 自动路由。
@@ -136,9 +139,10 @@ uv run hypo-research init --dir ./paper
 5. 重新筛选，输出最终分类报告和 BibTeX。
 6. 写作阶段用 `/hypo-lint` 对 LaTeX 结构做静态检查和规范化修复。
 7. 定稿前用 `/hypo-verify` 联网检查 `.bib` 是否混入幻觉论文或错误年份/DOI。
-8. 组会、论文讨论和导师沟通后，用 `/hypo-meeting` 将 ASR 转写整理成纪要。
 8. 用 `/hypo-polish` 做全文或局部英文润色。
 9. 用 `/hypo-translate` 维护中文注释与英文正文同步。
+10. 提交前用 `/hypo-presubmit` 运行 check / lint / verify 统一 gate。
+11. 组会、论文讨论和导师沟通后，用 `/hypo-meeting` 将 ASR 转写整理成纪要。
 
 ## 输出文件
 

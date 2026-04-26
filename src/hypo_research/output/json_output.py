@@ -7,6 +7,7 @@ from pathlib import Path
 
 from hypo_research.core.models import PaperResult, SurveyMeta
 from hypo_research.output.ranking import RankingResult, compute_rankings
+from hypo_research.output.summary import build_survey_summary, summary_to_payload
 
 
 def write_search_output(
@@ -21,13 +22,15 @@ def write_search_output(
 
     meta_payload = meta.model_dump(mode="json")
     rankings = compute_rankings(papers)
+    summary = build_survey_summary(papers)
     rankings_by_paper = _rankings_by_paper(rankings)
     results_payload = [
         _paper_payload(paper, rankings_by_paper[id(paper)]) for paper in papers
     ]
     ranked_payload = {
         "papers": results_payload,
-        "ranking_views": _ranking_views_payload(rankings, papers),
+        "summary": summary_to_payload(summary, papers),
+        "ranking_views": _ranking_views_payload(rankings, papers, summary.must_read),
     }
 
     _write_json(output_dir / "meta.json", meta_payload)
@@ -90,6 +93,7 @@ def _rankings_by_paper(rankings: RankingResult) -> dict[int, dict[str, object]]:
 def _ranking_views_payload(
     rankings: RankingResult,
     papers: list[PaperResult],
+    must_read: list[PaperResult],
 ) -> dict[str, object]:
     identifiers = {id(paper): _paper_identifier(index, paper) for index, paper in enumerate(papers, start=1)}
     by_time: dict[str, list[str]] = {}
@@ -102,6 +106,7 @@ def _ranking_views_payload(
         "by_citations": [identifiers[id(item.paper)] for item in rankings.by_citations],
         "by_relevance": [identifiers[id(item.paper)] for item in rankings.by_relevance],
         "by_time": by_time,
+        "must_read": [_paper_identifier(papers.index(paper) + 1, paper) for paper in must_read],
     }
 
 

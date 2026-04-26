@@ -84,7 +84,7 @@ Packaging 入口：
 
 ## Skills
 
-Hypo-Research provides **10 Skills** organized into three modules:
+Hypo-Research provides **11 Skills** organized into three modules:
 
 ### 📚 Survey Module — Literature Discovery & Analysis
 
@@ -104,6 +104,7 @@ Hypo-Research provides **10 Skills** organized into three modules:
 | `/hypo-polish` | `uv run hypo-research lint --stats` | English polishing — full-document scan or targeted section rewriting (Agent-driven, uses `chapter_stats`) |
 | `/hypo-translate` | `uv run hypo-research lint --stats` | Bilingual maintenance — sync/cn2en/en2cn modes for `% 中文注释` + English paragraph pairs |
 | `/hypo-check` | `uv run hypo-research check` | Writing pipeline — lint, auto-fix, verify, and save an aggregated report |
+| `/hypo-presubmit` | `uv run hypo-research presubmit` | Pre-submission gate — check, lint, verify, and emit a unified PASS/WARNING/FAIL report |
 
 ### 📝 Meeting Module — ASR Minutes & Glossary
 

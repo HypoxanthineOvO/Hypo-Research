@@ -103,6 +103,45 @@ def test_json_output_writes_top_level_ranking_views(tmp_path: Path) -> None:
     assert payload["ranking_views"]["by_time"]["2024"] == ["https://example.com/a"]
 
 
+def test_json_output_writes_summary_and_must_read_view(tmp_path: Path) -> None:
+    papers = [
+        PaperResult(
+            title="Must Read",
+            authors=["Alice"],
+            year=2024,
+            url="https://example.com/must",
+            citation_count=250,
+            overall_score=7.0,
+            source_api="semantic_scholar",
+            sources=["semantic_scholar"],
+        ),
+        PaperResult(
+            title="Normal",
+            authors=["Bob"],
+            year=2023,
+            url="https://example.com/normal",
+            citation_count=10,
+            overall_score=6.0,
+            source_api="semantic_scholar",
+            sources=["semantic_scholar"],
+        ),
+    ]
+    meta = SurveyMeta(
+        query="test",
+        params=SearchParams(query="test"),
+        sources_used=["semantic_scholar"],
+    )
+
+    write_search_output(tmp_path, meta, papers)
+
+    payload = json.loads((tmp_path / "ranked_results.json").read_text(encoding="utf-8"))
+    assert payload["summary"]["total"] == 2
+    assert payload["summary"]["year_span"] == {"min": 2023, "max": 2024}
+    assert payload["summary"]["high_citation_count"] == 1
+    assert payload["summary"]["must_read"] == ["https://example.com/must"]
+    assert payload["ranking_views"]["must_read"] == ["https://example.com/must"]
+
+
 def test_json_output_omits_none_scores(tmp_path: Path) -> None:
     paper = PaperResult(
         title="Paper",

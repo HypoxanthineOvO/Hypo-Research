@@ -157,7 +157,7 @@ class TestE2ESkillFlow:
 
         assert result.returncode == 0
         report = (output_dir / "results.md").read_text(encoding="utf-8")
-        assert "# Literature Survey Report" in report
+        assert "# Survey Report: cryogenic computing GPU" in report
         assert "## Search Summary" in report
         assert "## Results by Verification Status" in report
 

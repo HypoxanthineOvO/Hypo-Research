@@ -29,6 +29,7 @@
 - `hypo-polish` — 基于章节写作统计做英文润色建议或定向改写，支持 `\input`/`\include` 项目
 - `hypo-translate` — 维护中文注释与英文正文的双语同步，支持多文件 LaTeX 项目
 - `hypo-check` — 一键执行 lint → fix → verify → 聚合报告的 writing pipeline
+- `hypo-presubmit` — 提交前统一检查，串联 check / lint / verify 并输出 PASS/WARNING/FAIL
 - `hypo-meeting` — 从 ASR 转写生成结构化会议纪要，并维护全局术语知识库
 
 调用方式：
@@ -53,6 +54,7 @@
 | 定向文献检索 | 多源并行检索（S2 + OpenAlex + arXiv），跨源去重，交叉验证 | `hypo-research search` |
 | 多 query 批量检索 | 主 query + 扩展 query 组合检索，自动合并去重 | `hypo-research search -eq` |
 | 自动输出 | JSON + BibTeX + Markdown 报告，auto-verify 元数据质量检查 | 内置 hook，默认启用 |
+| 提交前检查 | 串联 check / lint / verify，输出统一 PASS/WARNING/FAIL 报告 | `hypo-research presubmit` |
 | 会议纪要 | ASR 转写术语纠正、模板上下文生成、全局 glossary 管理 | `hypo-research meeting` / `hypo-research glossary` |
 
 ## 何时使用
@@ -68,6 +70,7 @@
 - 检查某个候选池是否漏掉关键论文
 - 检查单文件或多文件 LaTeX 论文的 label / ref / float / BibTeX 结构问题
 - 对论文项目执行一键全面检查（lint + fix + verify + report）
+- 提交论文前需要统一跑 check / lint / verify 并获得总体判定
 - 检查 `.bib` 中是否存在幻觉论文或错误元数据
 - 对论文英文做润色或定向改写
 - 维护中英双语草稿的一致性
