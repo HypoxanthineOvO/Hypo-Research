@@ -9,6 +9,7 @@ from datetime import date
 from pathlib import Path
 
 from hypo_research.meeting.glossary import GlossaryManager, GlossaryTerm
+from hypo_research.meeting.inference import MeetingInference, infer_meeting_metadata
 from hypo_research.meeting.templates import get_template
 
 logger = logging.getLogger(__name__)
@@ -34,6 +35,7 @@ class MeetingOutput:
     template_used: str
     terms_corrected: list[str]
     unknown_terms: list[str]
+    inference: MeetingInference
 
 
 class MeetingProcessor:
@@ -78,9 +80,18 @@ class MeetingProcessor:
         unknown_terms = self._detect_unknown_terms(corrected_text)
         return corrected_text, list(dict.fromkeys(corrected_terms)), unknown_terms
 
+    def infer(self, transcript: str) -> MeetingInference:
+        """Infer meeting metadata from a transcript."""
+        terms = self.glossary.load()
+        glossary_terms = []
+        for term in terms.values():
+            glossary_terms.extend([term.keyword, term.canonical, *term.aliases])
+        return infer_meeting_metadata(transcript, glossary_terms=glossary_terms)
+
     def prepare_prompt_context(self, input: MeetingInput) -> dict:
         """Prepare transcript, template, glossary, and metadata for an Agent."""
         transcript = self.load_transcript(input.transcript_path)
+        inference = self.infer(transcript)
         corrected_text, corrected_terms, unknown_terms = self.preprocess(transcript)
         template = get_template(input.meeting_type)
         meeting_date = input.date or date.today().isoformat()
@@ -104,6 +115,7 @@ class MeetingProcessor:
             },
             "terms_corrected": corrected_terms,
             "unknown_terms": unknown_terms,
+            "inference": inference,
         }
 
     def write_prompt_context(self, input: MeetingInput) -> MeetingOutput:
@@ -117,6 +129,7 @@ class MeetingProcessor:
             template_used=str(context["template_used"]),
             terms_corrected=list(context["terms_corrected"]),
             unknown_terms=list(context["unknown_terms"]),
+            inference=context["inference"],
         )
 
     def _detect_unknown_terms(self, text: str) -> list[str]:
@@ -160,6 +173,15 @@ class MeetingProcessor:
 
 ## Unknown Terms
 {unknown_terms}
+
+## Inference
+- Meeting type: {context["inference"].meeting_type}
+- Confidence: {context["inference"].meeting_type_confidence}
+- Reason: {context["inference"].meeting_type_reason}
+- Participants: {", ".join(context["inference"].participants) or "（未推断）"}
+- Topic: {context["inference"].topic or "（未推断）"}
+- Domain keywords: {", ".join(context["inference"].domain_keywords) or "（未检测）"}
+- Language: {context["inference"].language}
 
 ## Glossary Excerpt
 {glossary}

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from click.testing import CliRunner
@@ -63,8 +64,72 @@ def test_meeting_basic_flow(tmp_path: Path, monkeypatch) -> None:
     assert result.exit_code == 0
     assert output.exists()
     content = output.read_text(encoding="utf-8")
+    assert "Inference:" in result.output
     assert "CKKS 方案" in content
+    assert "## Inference" in content
     assert "XYZ" in result.output
+
+
+def test_meeting_infer_outputs_json(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    transcript = tmp_path / "transcript.txt"
+    transcript.write_text(
+        "张老师：今天组会开始，小明先做进展汇报，讨论 FHE。",
+        encoding="utf-8",
+    )
+    runner = CliRunner()
+
+    result = runner.invoke(main, ["meeting", "--infer", str(transcript)])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["meeting_type"] == "group_meeting"
+    assert payload["meeting_type_confidence"] == "high"
+    assert "张老师" in payload["participants"]
+    assert "小明" in payload["participants"]
+    assert "FHE" in payload["domain_keywords"]
+
+
+def test_meeting_infer_contains_required_fields(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    transcript = tmp_path / "transcript.txt"
+    transcript.write_text("纯闲聊内容。", encoding="utf-8")
+    runner = CliRunner()
+
+    result = runner.invoke(main, ["meeting", "--infer", str(transcript)])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert {
+        "meeting_type",
+        "meeting_type_confidence",
+        "meeting_type_reason",
+        "participants",
+        "topic",
+        "domain_keywords",
+        "language",
+        "preview",
+    } <= set(payload)
+
+
+def test_meeting_uses_inferred_type_when_type_not_provided(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    transcript = tmp_path / "paper.txt"
+    transcript.write_text("这篇论文的作者提出一个新方法。", encoding="utf-8")
+    output = tmp_path / "minutes.md"
+    runner = CliRunner()
+
+    result = runner.invoke(
+        main,
+        ["meeting", str(transcript), "--output", str(output)],
+    )
+
+    assert result.exit_code == 0
+    assert "Inference: paper_discussion" in result.output
+    assert "Template: paper_discussion" in result.output
 
 
 def test_glossary_add_list_search_remove(tmp_path: Path, monkeypatch) -> None:

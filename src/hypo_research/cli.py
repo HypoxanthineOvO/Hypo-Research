@@ -587,6 +587,7 @@ def init(target_dir: Path, force: bool) -> None:
 
 
 @main.command()
+@click.pass_context
 @click.argument(
     "transcript",
     required=False,
@@ -619,7 +620,15 @@ def init(target_dir: Path, force: bool) -> None:
     default=False,
     help="List built-in meeting templates.",
 )
+@click.option(
+    "--infer",
+    "infer_only",
+    is_flag=True,
+    default=False,
+    help="Only infer meeting metadata and print JSON.",
+)
 def meeting(
+    ctx: click.Context,
     transcript: Path | None,
     meeting_type: str,
     participants: str | None,
@@ -627,6 +636,7 @@ def meeting(
     meeting_date: str,
     output: Path | None,
     list_templates_flag: bool,
+    infer_only: bool,
 ) -> None:
     """Prepare meeting transcript context for Agent-written minutes."""
     if list_templates_flag:
@@ -638,14 +648,28 @@ def meeting(
         return
 
     if transcript is None:
-        raise click.UsageError("TRANSCRIPT is required unless --list-templates is used")
+        raise click.UsageError(
+            "TRANSCRIPT is required unless --list-templates is used"
+        )
 
     processor = MeetingProcessor(GlossaryManager())
     try:
+        transcript_text = processor.load_transcript(transcript)
+        inference = processor.infer(transcript_text)
+        if infer_only:
+            click.echo(json.dumps(asdict(inference), ensure_ascii=False, indent=2))
+            return
+
+        type_was_provided = _cli_value_provided(ctx, "meeting_type")
+        effective_meeting_type = (
+            meeting_type
+            if type_was_provided
+            else inference.meeting_type or meeting_type
+        )
         result = processor.write_prompt_context(
             MeetingInput(
                 transcript_path=transcript,
-                meeting_type=meeting_type,
+                meeting_type=effective_meeting_type,
                 participants=_parse_csv_option(participants),
                 date=meeting_date,
                 topic=topic,
@@ -655,6 +679,13 @@ def meeting(
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
 
+    inferred_suffix = " (inferred)" if not type_was_provided else ""
+    click.echo(
+        "Inference: "
+        f"{result.inference.meeting_type} "
+        f"({result.inference.meeting_type_confidence} confidence)"
+        f"{inferred_suffix}"
+    )
     click.echo(f"Output: {result.minutes_path}")
     click.echo(f"Template: {result.template_used}")
     click.echo(f"Terms corrected: {', '.join(result.terms_corrected) or 'None'}")

@@ -84,4 +84,6 @@ def test_prepare_prompt_context_contains_required_fields(tmp_path: Path) -> None
     assert "corrected_transcript" in context
     assert "template_skeleton" in context
     assert "glossary_excerpt" in context
+    assert "inference" in context
+    assert context["inference"].meeting_type == "group_meeting"
     assert context["metadata"]["participants"] == ["张老师", "小明"]
