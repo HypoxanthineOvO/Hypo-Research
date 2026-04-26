@@ -82,7 +82,7 @@ class Deduplicator:
             primary.arxiv_id = secondary.arxiv_id
         if not primary.openalex_id and secondary.openalex_id:
             primary.openalex_id = secondary.openalex_id
-        if not primary.abstract and secondary.abstract:
+        if self._is_better_text(secondary.abstract, primary.abstract):
             primary.abstract = secondary.abstract
         if not primary.venue and secondary.venue:
             primary.venue = secondary.venue
@@ -200,3 +200,12 @@ class Deduplicator:
     ) -> list[str] | None:
         merged = self._merge_unique(left or [], right or [])
         return merged or None
+
+    @staticmethod
+    def _is_better_text(candidate: str | None, current: str | None) -> bool:
+        """Return whether candidate is a more complete text field."""
+        if not candidate:
+            return False
+        if not current:
+            return True
+        return len(candidate.strip()) > len(current.strip())

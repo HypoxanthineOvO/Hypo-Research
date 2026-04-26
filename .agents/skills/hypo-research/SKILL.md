@@ -11,7 +11,7 @@ license: MIT
 
 ## 概述
 
-这个 bundle 打包了 Hypo-Research 的 9 个工作流，适合通过 Codex 的 GitHub skill 安装流程一次性安装。
+这个 bundle 打包了 Hypo-Research 的 10 个工作流，适合通过 Codex 的 GitHub skill 安装流程一次性安装。
 
 ## 安装
 
@@ -33,7 +33,7 @@ python3 ~/.codex/skills/.system/skill-installer/scripts/install-skill-from-githu
 
 ## Skills
 
-本 bundle 内嵌 9 个 skill 文档，位于 `skills/` 目录：
+本 bundle 内嵌 10 个 skill 文档，位于 `skills/` 目录：
 
 - `skills/hypo-survey/SKILL.md` — 综合调研
 - `skills/hypo-search/SKILL.md` — 快速检索
@@ -44,6 +44,7 @@ python3 ~/.codex/skills/.system/skill-installer/scripts/install-skill-from-githu
 - `skills/hypo-polish/SKILL.md` — 英文润色
 - `skills/hypo-translate/SKILL.md` — 双语维护
 - `skills/hypo-check/SKILL.md` — 一键检查 pipeline
+- `skills/hypo-meeting/SKILL.md` — ASR 转写会议纪要 + 术语知识库
 
 ## 使用方式
 
@@ -51,6 +52,7 @@ python3 ~/.codex/skills/.system/skill-installer/scripts/install-skill-from-githu
 
 - 文献调研：`hypo-survey` / `hypo-search` / `hypo-screen` / `hypo-cite`
 - 论文写作：`hypo-lint` / `hypo-verify` / `hypo-polish` / `hypo-translate` / `hypo-check`
+- 会议纪要：`hypo-meeting`
 
 ## CLI
 
@@ -58,4 +60,4 @@ python3 ~/.codex/skills/.system/skill-installer/scripts/install-skill-from-githu
 uv run hypo-research <subcommand> [options]
 ```
 
-可用子命令：`search`, `cite`, `lint`, `verify`, `check`, `init`
+可用子命令：`search`, `cite`, `lint`, `verify`, `check`, `meeting`, `glossary`, `init`

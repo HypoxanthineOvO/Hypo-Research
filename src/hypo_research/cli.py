@@ -32,6 +32,14 @@ from hypo_research.core.sources import (
 )
 from hypo_research.core.verifier import Verifier
 from hypo_research.hooks import AutoBibHook, AutoReportHook, AutoVerifyHook, HookContext, HookEvent, HookManager
+from hypo_research.meeting import (
+    GlossaryManager,
+    GlossaryTerm,
+    MeetingInput,
+    MeetingProcessor,
+    get_template,
+    list_templates,
+)
 from hypo_research.output.json_output import write_search_output
 from hypo_research.survey.targeted import TargetedSearch, slugify_query
 from hypo_research.writing.bib_parser import parse_bib, parse_bib_files
@@ -161,6 +169,13 @@ def _parse_rules_option(raw_value: str | None) -> set[str] | None:
         if candidate.strip()
     }
     return rules or None
+
+
+def _parse_csv_option(raw_value: str | None) -> list[str]:
+    """Parse a comma-separated option value."""
+    if raw_value is None:
+        return []
+    return [item.strip() for item in raw_value.split(",") if item.strip()]
 
 
 def _resolve_lint_rules(
@@ -567,6 +582,162 @@ def init(target_dir: Path, force: bool) -> None:
         click.echo(f"Detected main_file: {detected_main}")
     if detected_bibs:
         click.echo(f"Detected bib_files: {', '.join(detected_bibs)}")
+
+
+@main.command()
+@click.argument(
+    "transcript",
+    required=False,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+)
+@click.option(
+    "--type",
+    "meeting_type",
+    default="group_meeting",
+    show_default=True,
+    help="Meeting template name.",
+)
+@click.option(
+    "--participants",
+    default=None,
+    help="Comma-separated participant names.",
+)
+@click.option("--topic", default="", help="Meeting topic.")
+@click.option("--date", "meeting_date", default="", help="Meeting date, e.g. 2026-04-26.")
+@click.option(
+    "--output",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Output path. Defaults to <transcript_stem>_minutes.md.",
+)
+@click.option(
+    "--list-templates",
+    "list_templates_flag",
+    is_flag=True,
+    default=False,
+    help="List built-in meeting templates.",
+)
+def meeting(
+    transcript: Path | None,
+    meeting_type: str,
+    participants: str | None,
+    topic: str,
+    meeting_date: str,
+    output: Path | None,
+    list_templates_flag: bool,
+) -> None:
+    """Prepare meeting transcript context for Agent-written minutes."""
+    if list_templates_flag:
+        for template_name in list_templates():
+            template = get_template(template_name)
+            click.echo(
+                f"{template.name}\t{template.display_name}\t{template.description}"
+            )
+        return
+
+    if transcript is None:
+        raise click.UsageError("TRANSCRIPT is required unless --list-templates is used")
+
+    processor = MeetingProcessor(GlossaryManager())
+    try:
+        result = processor.write_prompt_context(
+            MeetingInput(
+                transcript_path=transcript,
+                meeting_type=meeting_type,
+                participants=_parse_csv_option(participants),
+                date=meeting_date,
+                topic=topic,
+                output_path=output,
+            )
+        )
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    click.echo(f"Output: {result.minutes_path}")
+    click.echo(f"Template: {result.template_used}")
+    click.echo(f"Terms corrected: {', '.join(result.terms_corrected) or 'None'}")
+    if result.unknown_terms:
+        click.echo(f"Unknown terms: {', '.join(result.unknown_terms)}")
+
+
+@main.group()
+def glossary() -> None:
+    """Manage the global meeting glossary."""
+
+
+@glossary.command("list")
+@click.option("--category", default=None, help="Filter terms by category.")
+def glossary_list(category: str | None) -> None:
+    """List glossary terms."""
+    manager = GlossaryManager()
+    terms = manager.load()
+    filtered = [
+        term
+        for term in terms.values()
+        if category is None or term.category == category
+    ]
+    if not filtered:
+        click.echo("No glossary terms found.")
+        return
+
+    for term in sorted(filtered, key=lambda item: item.keyword.lower()):
+        aliases = ", ".join(term.aliases) if term.aliases else "-"
+        category_text = f" [{term.category}]" if term.category else ""
+        click.echo(
+            f"{term.keyword}{category_text}: {term.canonical} (aliases: {aliases})"
+        )
+
+
+@glossary.command("add")
+@click.option("--keyword", required=True, help="Primary keyword.")
+@click.option("--canonical", required=True, help="Canonical spelling.")
+@click.option("--aliases", default="", help="Comma-separated aliases.")
+@click.option("--category", default="", help="Optional category.")
+def glossary_add(
+    keyword: str,
+    canonical: str,
+    aliases: str,
+    category: str,
+) -> None:
+    """Add or update a glossary term."""
+    manager = GlossaryManager()
+    manager.load()
+    manager.add_term(
+        GlossaryTerm(
+            keyword=keyword,
+            canonical=canonical,
+            aliases=_parse_csv_option(aliases),
+            category=category,
+        )
+    )
+    manager.save()
+    click.echo(f"Added glossary term: {keyword}")
+
+
+@glossary.command("remove")
+@click.option("--keyword", required=True, help="Keyword or alias to remove.")
+def glossary_remove(keyword: str) -> None:
+    """Remove a glossary term."""
+    manager = GlossaryManager()
+    manager.load()
+    removed = manager.remove_term(keyword)
+    if not removed:
+        raise click.ClickException(f"Glossary term not found: {keyword}")
+    manager.save()
+    click.echo(f"Removed glossary term: {keyword}")
+
+
+@glossary.command("search")
+@click.argument("keyword")
+def glossary_search(keyword: str) -> None:
+    """Search a glossary term by keyword or alias."""
+    manager = GlossaryManager()
+    term = manager.lookup(keyword)
+    if term is None:
+        raise click.ClickException(f"Glossary term not found: {keyword}")
+    aliases = ", ".join(term.aliases) if term.aliases else "-"
+    category = f" [{term.category}]" if term.category else ""
+    click.echo(f"{term.keyword}{category}: {term.canonical} (aliases: {aliases})")
 
 
 @main.command()

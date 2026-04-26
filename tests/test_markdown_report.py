@@ -21,13 +21,14 @@ def make_paper(
     title: str,
     verification: VerificationLevel,
     metadata_issues: list[MetadataIssue] | None = None,
+    abstract: str | None = None,
 ) -> PaperResult:
     return PaperResult(
         title=title,
         authors=["Alice Smith"],
         year=2023,
         venue="ISSCC",
-        abstract=f"Abstract for {title}",
+        abstract=abstract if abstract is not None else f"Abstract for {title}",
         doi="10.1234/example",
         url="https://example.com",
         source_api="semantic_scholar",
@@ -137,6 +138,27 @@ def test_generate_report_includes_metadata_quality_summary(tmp_path: Path) -> No
     assert "Warnings: 1" in content
     assert "Errors: 1" in content
     assert "Problematic Paper: error on `authors`" in content
+
+
+def test_generate_report_truncates_long_abstract(tmp_path: Path) -> None:
+    output_path = tmp_path / "results.md"
+    long_abstract = "A" * 520
+    generate_report(
+        [
+            make_paper(
+                title="Long Abstract Paper",
+                verification=VerificationLevel.VERIFIED,
+                abstract=long_abstract,
+            )
+        ],
+        make_meta(),
+        output_path,
+    )
+
+    content = output_path.read_text(encoding="utf-8")
+    assert "**Abstract**: " in content
+    assert f"{'A' * 500}..." in content
+    assert long_abstract not in content
 
 
 def test_generate_report_for_citation_graph_mode(tmp_path: Path) -> None:

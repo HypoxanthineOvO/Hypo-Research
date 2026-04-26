@@ -59,6 +59,7 @@ async def test_search_maps_paper_fields() -> None:
     assert paper.title == SAMPLE_S2_PAPER["title"]
     assert paper.authors == ["Alice Smith", "Bob Jones"]
     assert paper.doi == "10.1234/example"
+    assert paper.abstract == "We present a cryogenic CMOS design..."
     assert paper.arxiv_id == "2301.00001"
     assert paper.source_api == "semantic_scholar"
     assert paper.sources == ["semantic_scholar"]
@@ -125,6 +126,7 @@ async def test_search_includes_year_filter() -> None:
 
     assert captured_request
     assert captured_request[0].url.params["year"] == "2020-2026"
+    assert "abstract" in captured_request[0].url.params["fields"]
 
 
 @pytest.mark.asyncio

@@ -7,7 +7,7 @@
   "plugins": [
     {
       "name": "hypo-research",
-      "description": "学术科研辅助工具链 — 文献调研 / 筛选 / 引文遍历 / LaTeX lint & fix / 引用验证 / 润色 / 翻译 / 一键检查",
+      "description": "学术科研辅助工具链 — 文献调研 / 筛选 / 引文遍历 / LaTeX lint & fix / 引用验证 / 润色 / 翻译 / 一键检查 / 会议纪要",
       "version": "0.4.0",
       "author": {
         "name": "Hypoxanthine",

@@ -53,3 +53,24 @@ uv run hypo-research search "<main query>" \
    - 关键发现：按 citation count 列出 Top 5
    - 数据质量：auto-verify 发现的问题数
    - 输出文件路径
+
+## 论文展示规则
+
+在向用户展示 survey 结果时，对每篇论文：
+
+1. 显示基本元数据（标题、作者、年份、场地、被引数）
+2. 读取 `abstract` 字段，用 1-2 句中文概括论文的核心贡献和方法
+3. 概括应突出：做了什么、怎么做的、主要结果
+4. 专业术语保留英文（如 FHE、NTT、bootstrapping）
+5. 如果 `abstract` 为空，标注“（无摘要）”
+
+示例输出格式：
+
+```text
+📄 CryptoNAS: Private Inference on a Budget (ICLR 2024, 被引 45)
+   → 提出针对 FHE 推理场景的神经架构搜索方法，通过联合优化
+     FHE 友好算子和网络结构，在保持精度的同时将推理延迟降低 3×。
+```
+
+中文概括由 Agent 在交互时实时生成，不写入报告文件。`results.md`
+保留英文 abstract 原文，`results.json` 保留完整 abstract 字段。

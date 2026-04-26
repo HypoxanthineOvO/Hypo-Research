@@ -18,13 +18,14 @@ def make_paper(
     openalex_id: str | None = None,
     citation_count: int | None = None,
     matched_queries: list[str] | None = None,
+    abstract: str | None = None,
 ) -> PaperResult:
     return PaperResult(
         title=title,
         authors=authors,
         year=year,
         venue="ISSCC",
-        abstract=f"Abstract for {title}",
+        abstract=abstract if abstract is not None else f"Abstract for {title}",
         doi=doi,
         s2_paper_id=s2_paper_id,
         arxiv_id=arxiv_id,
@@ -189,3 +190,32 @@ def test_dedup_merges_matched_queries() -> None:
 
     assert len(deduped) == 1
     assert set(deduped[0].matched_queries or []) == {"query-a", "query-b"}
+
+
+def test_dedup_preserves_more_complete_abstract() -> None:
+    deduplicator = Deduplicator()
+    papers = [
+        make_paper(
+            title="Paper",
+            authors=["Alice Smith"],
+            year=2024,
+            source_api="semantic_scholar",
+            doi="10.1234/example",
+            abstract="Short abstract.",
+        ),
+        make_paper(
+            title="Paper",
+            authors=["Alice Smith"],
+            year=2024,
+            source_api="openalex",
+            doi="10.1234/example",
+            abstract="This is a longer and more complete abstract with method and result details.",
+        ),
+    ]
+
+    deduped = deduplicator.dedup(papers)
+
+    assert len(deduped) == 1
+    assert deduped[0].abstract == (
+        "This is a longer and more complete abstract with method and result details."
+    )

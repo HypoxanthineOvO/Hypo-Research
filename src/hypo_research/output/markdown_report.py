@@ -80,13 +80,13 @@ def _render_paper_section(title: str, papers: list[PaperResult]) -> list[str]:
         venue = paper.venue or "Unknown venue"
         doi = paper.doi or "N/A"
         sources = ", ".join(_pretty_source_name(source) for source in paper.sources)
-        abstract_excerpt = (paper.abstract or "")[:200]
+        abstract_excerpt = _truncate_abstract(paper.abstract)
 
         lines.append(f"{index}. **{paper.title}** ({paper.year or 'Unknown year'})")
         lines.append(f"   {authors} — {venue}")
         lines.append(f"   DOI: {doi} | Sources: {sources}")
         if abstract_excerpt:
-            lines.append(f"   > {abstract_excerpt}")
+            lines.append(f"   **Abstract**: {abstract_excerpt}")
         lines.append("")
     return lines
 
@@ -181,6 +181,16 @@ def _pretty_source_name(source: str) -> str:
         "arxiv": "arXiv",
     }
     return mapping.get(source, source)
+
+
+def _truncate_abstract(abstract: str | None, limit: int = 500) -> str:
+    """Return a Markdown-sized abstract excerpt."""
+    if not abstract:
+        return ""
+    cleaned = " ".join(abstract.split())
+    if len(cleaned) <= limit:
+        return cleaned
+    return f"{cleaned[:limit]}..."
 
 
 def _render_mode_specific_summary(meta: SurveyMeta) -> list[str]:

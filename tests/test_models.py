@@ -35,6 +35,8 @@ def test_paper_result_round_trip() -> None:
 
     assert restored == paper
     assert restored.verification is VerificationLevel.SINGLE_SOURCE
+    assert hasattr(restored, "abstract")
+    assert restored.abstract is None
 
 
 def test_search_params_defaults() -> None:
