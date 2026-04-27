@@ -49,6 +49,7 @@ from hypo_research.presubmit import (
     render_presubmit_report,
     run_presubmit,
 )
+from hypo_research.project.cli import PROJECT_COMMANDS
 from hypo_research.review.literature import LiteratureContext, search_literature
 from hypo_research.review.parser import PaperStructure, parse_paper
 from hypo_research.review.report import (
@@ -2130,6 +2131,10 @@ def verify(
 for ideation_command in IDEATION_COMMANDS:
     if ideation_command.name not in main.commands:
         main.add_command(ideation_command)
+
+for project_command in PROJECT_COMMANDS:
+    if project_command.name not in main.commands:
+        main.add_command(project_command)
 
 
 if __name__ == "__main__":
