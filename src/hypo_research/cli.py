@@ -50,7 +50,10 @@ from hypo_research.presubmit import (
 )
 from hypo_research.review.parser import PaperStructure, parse_paper
 from hypo_research.review.report import (
+    MetaReview,
     ReviewReport,
+    RevisionItem,
+    RevisionRoadmap,
     SingleReview,
     generate_report_json as generate_review_report_json,
     generate_report_markdown as generate_review_report_markdown,
@@ -62,6 +65,8 @@ from hypo_research.review.reviewers import (
     SEVERITY_MODIFIERS,
     ReviewerConfig,
     Severity as ReviewSeverity,
+    get_meta_review_prompt,
+    get_revision_roadmap_prompt,
     get_reviewer_prompt,
 )
 from hypo_research.review.venues import VENUES as REVIEW_VENUES
@@ -912,12 +917,71 @@ def _build_review_scaffold(
                 confidence=None,
             )
         )
+    meta_review = _build_meta_review_scaffold(reviewer_ids) if "heyunxiang" in reviewer_ids else None
+    revision_roadmap = (
+        _build_revision_roadmap_scaffold(meta_review, reviews)
+        if meta_review is not None
+        else None
+    )
     return ReviewReport(
         paper_title=paper.title,
         venue=venue,
         severity=severity.value,
         panel=reviewer_ids,
         reviews=reviews,
+        meta_review=meta_review,
+        revision_roadmap=revision_roadmap,
+    )
+
+
+def _build_meta_review_scaffold(reviewer_ids: list[str]) -> MetaReview:
+    reviewers = [
+        f"{REVIEWERS[reviewer_id].emoji}{REVIEWERS[reviewer_id].name}"
+        for reviewer_id in reviewer_ids
+    ]
+    return MetaReview(
+        ac_name="贺云翔",
+        ac_emoji="🏛️",
+        consensus_summary="CLI 已生成 AC Meta-Review 结构；请在所有独立审稿完成后由贺云翔综合填写。",
+        key_disagreements=["待 Agent 汇总审稿人之间的关键分歧。"],
+        final_recommendation="Borderline",
+        recommendation_reasoning=f"当前仅有结构化脚手架，已纳入审稿团：{', '.join(reviewers)}。最终建议需基于完整审稿意见更新。",
+        actionable_priorities=["待 Agent 根据 Major Issues 和共识问题排序。"],
+        confidence=3,
+    )
+
+
+def _build_revision_roadmap_scaffold(
+    meta_review: MetaReview,
+    reviews: list[SingleReview],
+) -> RevisionRoadmap:
+    reviewer_names = [f"{review.reviewer_emoji}{review.reviewer_name}" for review in reviews]
+    return RevisionRoadmap(
+        one_line_summary="CLI 已生成修改路线图结构；请在 Meta-Review 完成后由导师视角补充具体修改计划。",
+        must_fix=[
+            RevisionItem(
+                priority="🔴 必须修改",
+                title="处理 AC Meta-Review 中确认的致命问题",
+                problem="Meta-Review 尚未由 Agent 填写，当前无法判断具体致命问题。",
+                suggestion="完成逐角色审稿后，将所有 Major Issues 合并去重，并优先处理多个审稿人共同指出的问题。",
+                effort_estimate="待评估",
+                source_reviewers=[f"{meta_review.ac_emoji}{meta_review.ac_name} [Meta-Review]"],
+            )
+        ],
+        should_fix=[],
+        can_dismiss=[],
+        schedule=[
+            {"phase": "Week 1", "time": "Day 1-5", "tasks": "补齐 Must Fix 实验或理论论证"},
+            {"phase": "Week 2", "time": "Day 6-10", "tasks": "处理 Should Fix、写作和格式问题"},
+        ],
+        reviewer_notes=[
+            "贺云翔关注 novelty 和本质贡献，rebuttal 必须正面回应。",
+            "李超凡关注实验公平性和 claim 是否过度，所有新增数据需要可复核。",
+        ],
+        concerns_table={
+            "reviewers": reviewer_names,
+            "issues": {"Novelty": [], "Experiments": [], "Writing": [], "Reproducibility": []},
+        },
     )
 
 
@@ -957,12 +1021,34 @@ def _render_review_prompt_packet(
     expert2_domain: str | None,
 ) -> str:
     prompts = []
+    meta_prompt = None
+    roadmap_prompt = None
+    scaffold_reviews: list[SingleReview] = []
     for reviewer_id in reviewer_ids:
         reviewer = REVIEWERS[reviewer_id]
+        scaffold_reviews.append(
+            SingleReview(
+                reviewer_id=reviewer.id,
+                reviewer_name=reviewer.name,
+                reviewer_emoji=reviewer.emoji,
+                reviewer_role=reviewer.role,
+                severity_label=SEVERITY_MODIFIERS[severity]["label"],
+                summary="待填写",
+                weaknesses=[],
+            )
+        )
         prompts.append(
             f"## {reviewer.emoji} {reviewer.name} — {reviewer.role}\n\n"
             f"{get_reviewer_prompt(reviewer, severity, paper, venue=venue, expert2_domain=expert2_domain)}"
         )
+    if "heyunxiang" in reviewer_ids:
+        meta_prompt = get_meta_review_prompt(paper, scaffold_reviews, severity, venue=venue)
+        meta_review = _build_meta_review_scaffold(reviewer_ids)
+        roadmap_prompt = get_revision_roadmap_prompt(paper, scaffold_reviews, meta_review, severity)
+    if meta_prompt:
+        prompts.append(f"## 🏛️ 贺云翔 — AC Meta-Review\n\n{meta_prompt}")
+    if roadmap_prompt:
+        prompts.append(f"## 📚 导师视角 — Revision Roadmap\n\n{roadmap_prompt}")
     return "\n\n---\n\n".join(prompts)
 
 
@@ -1048,6 +1134,7 @@ def review(
     reviewer_ids = _resolve_review_panel(panel, reviewers)
     review_severity = ReviewSeverity(severity)
     venue_text = None
+    venue_profile = None
     if venue is not None:
         venue_profile = REVIEW_VENUES[venue.lower()]
         venue_text = f"{venue_profile.name}: {venue_profile.review_criteria}"
@@ -1057,7 +1144,7 @@ def review(
             paper,
             reviewer_ids,
             review_severity,
-            venue_text,
+            venue_profile or venue_text,
             expert2_domain,
         )
     else:

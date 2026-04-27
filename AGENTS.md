@@ -1,3 +1,12 @@
+## ⚠️ 语言要求（Language Policy）
+
+1. **所有与用户的沟通**（完成报告、进度说明、问题描述、CLI 输出摘要）**必须使用中文**
+2. **代码内文档**（docstring、注释）可以英文，但**面向用户的输出文本**（CLI 提示、报告模板、错误信息）使用中文
+3. **Git commit message** 保持英文
+4. **GitHub Release notes** 保持英文
+5. 专业术语可保留英文原文（如 PaperStructure、ReviewResult、SOTA）
+6. 如果输出内容含英文段落，**必须在后面附中文翻译或中文概要**
+
 # Hypo-Research
 
 文献调研 Skill，辅助学术科研中的文献检索、交叉验证和结果整理。

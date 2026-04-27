@@ -15,6 +15,8 @@ def test_venue_profiles_are_complete() -> None:
         assert venue.category
         assert venue.focus
         assert venue.review_criteria
+        assert hasattr(venue, "review_style")
+        assert venue.review_style
 
 
 def test_venue_categories_cover_required_types() -> None:
@@ -27,3 +29,7 @@ def test_venue_lookup() -> None:
     assert get_review_venue("dac").name == "DAC"
     with pytest.raises(KeyError):
         get_review_venue("unknown")
+
+
+def test_all_venues_have_non_empty_review_style() -> None:
+    assert all(venue.review_style for venue in VENUES.values())

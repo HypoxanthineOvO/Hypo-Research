@@ -2,8 +2,8 @@
 name: hypo-review
 description: >
   Run a multi-persona simulated academic review for a LaTeX or PDF paper.
-  Parses paper structure, prepares reviewer-specific prompts, and aggregates
-  structured review feedback from seven possible reviewer roles.
+  Parses paper structure, prepares reviewer-specific prompts, then guides
+  independent reviews, AC meta-review, revision roadmap, and consistency checks.
 license: MIT
 ---
 
@@ -25,28 +25,21 @@ $ARGUMENTS
 
 ### 第一步：解析论文
 
-用户给出论文路径后，先运行：
+先运行：
 
 ```bash
 uv run hypo-research review --parse-only <paper_path>
 ```
 
-读取输出的 `PaperStructure`，重点检查 title、abstract、sections、figures、tables、claims、references、inferred_domain 和 raw_text 是否合理。如果解析结果明显异常，先向用户说明并请求确认输入文件。
+检查 `PaperStructure` 中的 title、abstract、sections、figures、tables、claims、references、inferred_domain 和 raw_text。若解析明显异常，先向用户说明并确认输入文件。
 
 ### 第二步：确认审稿配置
 
-向用户确认以下配置：
+确认目标 venue、审稿团、苛刻程度和论文领域。用户已明确给出参数时，可以直接继续。
 
-- 目标 venue：影响审稿标准；用户未指定时使用通用学术标准。
-- 审稿团选择：默认 4 人、全员 7 人或自选。
-- 苛刻程度：`gentle` / `standard` / `harsh`，默认 `standard`。
-- 论文领域：用于 Expert-2 和相邻方向视角对齐，可用自动推断值。
+### 第三步：逐角色审稿
 
-如果用户已经明确给出这些参数，可以直接继续，不必重复确认。
-
-### 第三步：生成角色 prompt
-
-运行：
+生成角色 prompt：
 
 ```bash
 uv run hypo-research review <paper_path> \
@@ -56,44 +49,51 @@ uv run hypo-research review <paper_path> \
   --prompts
 ```
 
-如果是自选审稿人，使用：
+依次切换为每个审稿人角色，基于 prompt 进行审稿。每个角色独立审稿，输出结构化审稿意见。
 
-```bash
-uv run hypo-research review <paper_path> \
-  --reviewers <id1> <id2> <id3> \
-  --severity <severity> \
-  --prompts
-```
-
-### 第四步：逐角色审稿
-
-依次切换为每个审稿人角色，基于对应 prompt 独立审稿。不要让后一个角色引用前一个角色的判断，除非最终汇总阶段。
+**重要**：审稿时你要完全进入该角色的性格和视角。每个 Weakness 必须同时给出具体问题、改进建议和重要程度理由。
 
 审稿人角色：
+- 🏛️ 贺云翔：Senior AC，关注 novelty、算法深度和本质贡献。
+- 🔬 李超凡：Expert-1，关注技术正确性、实验公平性、SOTA 对比和 claim 是否 over。
+- 🔬 吴浩宇：Expert-2，关注相邻领域盲点、跨领域可行性和遗漏相关工作。
+- 📐 陈泉宇：Related，关注可读性、术语解释、figure 是否自解释。
+- 🤔 蒋烨：Outsider，关注故事线、motivation、contribution 和整体自洽性。
+- ✍️ 李宇轩：Writing，关注表达、格式、术语一致性和引用规范；不打数值分。
+- 🔧 丁麒涵：Reproducibility，关注代码、数据、超参数、计算资源和随机种子。
 
-- 🏛️ 贺云翔：Senior AC。像算法大佬一样思考 idea 的本质贡献，重点判断 novelty、算法深度和是否 incremental。
-- 🔬 李超凡：Expert-1。技术敏锐，追问方法细节、实验公平性、SOTA 对比和 claim 是否 over。
-- 🔬 吴浩宇：Expert-2。相邻方向专家，寻找跨领域盲点、遗漏相关工作和通用性问题。
-- 📐 陈泉宇：Related。大同行视角，关注 motivation、contribution、故事线和整体自洽性。
-- 🤔 蒋烨：Outsider。聪明外行视角，检查 intro、figure、术语解释和可读性。
-- ✍️ 李宇轩：Writing。语言严谨，检查用词、段落逻辑、术语一致性、标点和引用格式；不打数值分。
-- 🔧 丁麒涵：Reproducibility。复现视角，检查代码、数据集、超参数、计算资源和随机种子。
+### 第三点五步：AC Meta-Review（如果贺云翔在 panel 中）
 
-苛刻程度：
+在所有审稿人完成独立审稿后，切换回贺云翔 AC 角色：
+- 综合所有审稿意见
+- 找出共识和分歧
+- 给出最终建议和修改优先级
+- 输出 `MetaReview` 结构
 
-- `gentle`：温和版，适合 workshop、内部讨论和初稿。
-- `standard`：标准版，适合普通会议投稿。
-- `harsh`：地狱版👹，适合顶会、顶刊和压力测试。
+### 第三点六步：修改路线图（如果贺云翔在 panel 中）
+
+在 Meta-Review 完成后，切换为“导师”角色：
+- 站在作者一边，将审稿意见分类为必改、建议改、可忽略
+- 为每个必改项给出具体方案和工作量预估
+- 生成修改时间表和问题交叉矩阵
+- 输出 `RevisionRoadmap` 结构
+
+### 第四步：一致性检查（始终执行）
+
+对所有审稿意见进行规则检查：
+- 检查是否有泛泛而谈的意见（未引用具体章节、图表或公式）
+- 检查是否有自相矛盾的意见
+- 生成 `ConsistencyReport`，附在报告末尾
 
 ### 第五步：汇总报告
 
-将每个角色的结构化审稿意见整理为 `SingleReview`，再按 `ReviewReport` 格式输出最终 Markdown 报告。CLI 可生成结构化报告框架：
+将所有 `SingleReview`、`MetaReview`、`RevisionRoadmap` 和 `ConsistencyReport` 汇总为最终 Markdown 报告。CLI 可生成报告框架：
 
 ```bash
 uv run hypo-research review <paper_path> --output review_report.md
 ```
 
-如果需要机器可读结构：
+机器可读输出：
 
 ```bash
 uv run hypo-research review <paper_path> --json
@@ -102,32 +102,24 @@ uv run hypo-research review <paper_path> --json
 ## 输出格式
 
 每个审稿人输出：
-
 1. Summary（2-3 句）
 2. Strengths（编号列表）
-3. Weaknesses（编号列表，标注 `[Major]` 或 `[Minor]`）
+3. Weaknesses（编号列表，标注 `[Major]` 或 `[Minor]`，且必须可操作）
 4. Questions to Authors（编号列表）
 5. Missing References（如有）
 6. Score: X/10（Writing 角色不打分）
 7. Decision: Strong Accept / Accept / Weak Accept / Borderline / Weak Reject / Reject / Strong Reject
 8. Confidence: X/5
 
-最终报告必须包含：
-
-- 总体评分表
-- Major Issues 汇总
-- Minor Issues 汇总
-- Strengths 汇总
-- 每位审稿人的详细报告
+最终报告必须包含总体评分表、AC Meta-Review（如适用）、Major/Minor/Strengths 汇总、详细审稿、修改路线图（如适用）和一致性检查。
 
 ## 常用命令
 
 ```bash
 uv run hypo-research review paper.tex
-uv run hypo-research review paper.tex --venue dac
-uv run hypo-research review paper.pdf --panel full
+uv run hypo-research review paper.tex --venue tcas1 --panel full
+uv run hypo-research review paper.pdf --panel full --severity harsh
 uv run hypo-research review paper.tex --reviewers lichaofan chenquanyu liyuxuan
-uv run hypo-research review paper.tex --severity harsh
 uv run hypo-research review --list-reviewers
 uv run hypo-research review --list-venues
 ```
