@@ -48,6 +48,7 @@ from hypo_research.presubmit import (
     render_presubmit_report,
     run_presubmit,
 )
+from hypo_research.review.literature import LiteratureContext, search_literature
 from hypo_research.review.parser import PaperStructure, parse_paper
 from hypo_research.review.report import (
     MetaReview,
@@ -892,6 +893,7 @@ def _build_review_scaffold(
     reviewer_ids: list[str],
     severity: ReviewSeverity,
     venue: str | None,
+    literature: LiteratureContext | None = None,
 ) -> ReviewReport:
     """Build a structured report shell; Agent personas fill semantic judgments."""
     severity_label = SEVERITY_MODIFIERS[severity]["label"]
@@ -931,6 +933,7 @@ def _build_review_scaffold(
         reviews=reviews,
         meta_review=meta_review,
         revision_roadmap=revision_roadmap,
+        literature=literature,
     )
 
 
@@ -1019,6 +1022,7 @@ def _render_review_prompt_packet(
     severity: ReviewSeverity,
     venue: str | None,
     expert2_domain: str | None,
+    literature: LiteratureContext | None = None,
 ) -> str:
     prompts = []
     meta_prompt = None
@@ -1039,12 +1043,12 @@ def _render_review_prompt_packet(
         )
         prompts.append(
             f"## {reviewer.emoji} {reviewer.name} — {reviewer.role}\n\n"
-            f"{get_reviewer_prompt(reviewer, severity, paper, venue=venue, expert2_domain=expert2_domain)}"
+            f"{get_reviewer_prompt(reviewer, severity, paper, venue=venue, expert2_domain=expert2_domain, literature=literature)}"
         )
     if "heyunxiang" in reviewer_ids:
-        meta_prompt = get_meta_review_prompt(paper, scaffold_reviews, severity, venue=venue)
+        meta_prompt = get_meta_review_prompt(paper, scaffold_reviews, severity, venue=venue, literature=literature)
         meta_review = _build_meta_review_scaffold(reviewer_ids)
-        roadmap_prompt = get_revision_roadmap_prompt(paper, scaffold_reviews, meta_review, severity)
+        roadmap_prompt = get_revision_roadmap_prompt(paper, scaffold_reviews, meta_review, severity, literature=literature)
     if meta_prompt:
         prompts.append(f"## 🏛️ 贺云翔 — AC Meta-Review\n\n{meta_prompt}")
     if roadmap_prompt:
@@ -1083,6 +1087,9 @@ def _render_review_prompt_packet(
 @click.option("--list-reviewers", is_flag=True, default=False, help="List available reviewer personas.")
 @click.option("--list-venues", is_flag=True, default=False, help="List available review venues.")
 @click.option("--prompts", is_flag=True, default=False, help="Print reviewer prompts instead of the report scaffold.")
+@click.option("--no-literature", is_flag=True, default=False, help="跳过自动文献检索（离线/快速模式）")
+@click.option("--literature-years", type=int, default=3, show_default=True, help="文献检索的年份范围")
+@click.option("--literature-count", type=int, default=8, show_default=True, help="检索的最大文献数量")
 def review(
     paper_path: Path | None,
     venue: str | None,
@@ -1097,6 +1104,9 @@ def review(
     list_reviewers: bool,
     list_venues: bool,
     prompts: bool,
+    no_literature: bool,
+    literature_years: int,
+    literature_count: int,
 ) -> None:
     """Parse a paper and prepare a multi-reviewer simulated review scaffold."""
     if list_reviewers:
@@ -1133,6 +1143,13 @@ def review(
 
     reviewer_ids = _resolve_review_panel(panel, reviewers)
     review_severity = ReviewSeverity(severity)
+    literature = None
+    if not no_literature:
+        literature = _search_review_literature(
+            paper=paper,
+            literature_years=literature_years,
+            literature_count=literature_count,
+        )
     venue_text = None
     venue_profile = None
     if venue is not None:
@@ -1146,9 +1163,10 @@ def review(
             review_severity,
             venue_profile or venue_text,
             expert2_domain,
+            literature,
         )
     else:
-        report = _build_review_scaffold(paper, reviewer_ids, review_severity, venue)
+        report = _build_review_scaffold(paper, reviewer_ids, review_severity, venue, literature)
         rendered = (
             json.dumps(generate_review_report_json(report), indent=2, ensure_ascii=False)
             if json_mode
@@ -1159,6 +1177,33 @@ def review(
         output.write_text(rendered, encoding="utf-8")
     else:
         click.echo(rendered, nl=not rendered.endswith("\n"))
+
+
+def _search_review_literature(
+    *,
+    paper: PaperStructure,
+    literature_years: int,
+    literature_count: int,
+) -> LiteratureContext | None:
+    click.echo("📚 正在检索相关文献...", err=True)
+    try:
+        literature = search_literature(
+            paper_title=paper.title,
+            paper_abstract=paper.abstract,
+            paper_references=paper.references,
+            year_range=literature_years,
+            max_results=literature_count,
+        )
+    except Exception as exc:
+        click.echo(f"⚠️ 文献检索失败（{exc}），将继续审稿但不含文献对比", err=True)
+        return None
+    if literature.references:
+        cited = sum(1 for reference in literature.references if reference.is_cited_by_paper)
+        uncited = len(literature.references) - cited
+        click.echo(f"📚 找到 {len(literature.references)} 篇相关文献（{cited} 篇已被引用，{uncited} 篇未被引用）", err=True)
+    else:
+        click.echo("📚 未找到相关文献，将跳过文献对比", err=True)
+    return literature
 
 
 @main.command()

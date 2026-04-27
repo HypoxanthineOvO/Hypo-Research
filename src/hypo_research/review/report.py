@@ -5,7 +5,10 @@ from __future__ import annotations
 import re
 from dataclasses import asdict, dataclass, field
 from statistics import mean
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from hypo_research.review.literature import LiteratureContext
 
 
 REVISION_PRIORITIES = {"🔴 必须修改", "🟡 建议修改", "⚪ 可以忽略"}
@@ -120,6 +123,7 @@ class ReviewReport:
     meta_review: MetaReview | None = None
     revision_roadmap: RevisionRoadmap | None = None
     consistency_report: ConsistencyReport | None = None
+    literature: "LiteratureContext | None" = None
 
 
 def aggregate_report(report: ReviewReport) -> ReviewReport:
@@ -201,11 +205,16 @@ def generate_report_markdown(report: ReviewReport) -> str:
         "",
         "---",
         "",
+    ]
+    if report.literature is not None and report.literature.references:
+        lines.extend(_render_literature_section(report.literature))
+        lines.extend(["", "---", ""])
+    lines.extend([
         "## 🎯 总体评价",
         "",
         "| 审稿人 | 评分 | 倾向 | 信心 |",
         "|--------|------|------|------|",
-    ]
+    ])
     for review in report.reviews:
         score = "-" if review.score is None else f"{review.score}/10"
         decision = review.decision or "-"
@@ -269,6 +278,29 @@ def _render_meta_review(meta_review: MetaReview) -> list[str]:
     lines.extend(_numbered_plain(meta_review.actionable_priorities))
     lines.append("")
     lines.append(f"**AC 信心**：{meta_review.confidence}/5")
+    return lines
+
+
+def _render_literature_section(literature: "LiteratureContext") -> list[str]:
+    sorted_references = sorted(
+        literature.references,
+        key=lambda ref: (ref.is_cited_by_paper, -ref.citation_count, -ref.year),
+    )
+    lines = [
+        "## 📚 相关文献检索结果",
+        "",
+        f"> 以下文献由自动检索获取（检索时间：{literature.search_timestamp}，范围：{literature.year_range[0]}-{literature.year_range[1]}）",
+        f"> 搜索关键词：{' | '.join(literature.query_terms)}",
+        "",
+        "| # | 论文 | Venue | 年份 | 被引 | 本文引用 |",
+        "| --- | --- | --- | --- | --- | --- |",
+    ]
+    for index, ref in enumerate(sorted_references, start=1):
+        cited = "✅ 已引用" if ref.is_cited_by_paper else "⚠️ 未引用"
+        lines.append(
+            f"| {index} | {ref.title} | {ref.venue or '未知venue'} | {ref.year} | {ref.citation_count} | {cited} |"
+        )
+    lines.extend(["", "⚠️ 未被引用的论文可能是潜在的遗漏相关工作。"])
     return lines
 
 

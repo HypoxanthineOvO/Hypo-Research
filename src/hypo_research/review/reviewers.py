@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from hypo_research.review.venues import VENUES, VenueProfile
 
 if TYPE_CHECKING:
+    from hypo_research.review.literature import LiteratureContext
     from hypo_research.review.parser import PaperStructure
     from hypo_research.review.report import MetaReview, SingleReview
 
@@ -252,6 +253,7 @@ def get_reviewer_prompt(
     paper: "PaperStructure",
     venue: str | VenueProfile | None = None,
     expert2_domain: str | None = None,
+    literature: "LiteratureContext | None" = None,
 ) -> str:
     """Generate the review prompt for a specific reviewer."""
     modifier = SEVERITY_MODIFIERS[severity]
@@ -274,6 +276,7 @@ def get_reviewer_prompt(
         if venue_style
         else ""
     )
+    literature_block = _format_literature_context_optional(literature)
 
     return f"""你现在扮演 {reviewer.emoji} {reviewer.name}（{reviewer.role}）。
 
@@ -291,6 +294,8 @@ def get_reviewer_prompt(
 目标 venue：{venue_text}
 相邻方向上下文（仅 Expert-2 重点使用）：{adjacent_domain}
 {venue_style_block}
+
+{literature_block}
 
 论文结构摘要：
 - 标题：{paper.title}
@@ -329,11 +334,13 @@ def get_meta_review_prompt(
     reviews: list["SingleReview"],
     severity: Severity,
     venue: str | VenueProfile | None = None,
+    literature: "LiteratureContext | None" = None,
 ) -> str:
     """Generate the meta-review prompt for AC 贺云翔 after individual reviews."""
     venue_text, venue_style = _resolve_venue_prompt_info(venue)
     reviews_summary = _format_reviews_for_ac(reviews)
     venue_style_block = f"\n\n## Venue 审稿文化\n{venue_style}" if venue_style else ""
+    literature_block = _format_literature_context_optional(literature)
     return f"""
 你是 🏛️ 贺云翔，本次审稿的 Senior Area Chair。
 
@@ -341,6 +348,8 @@ def get_meta_review_prompt(
 目标 venue：{venue_text}
 苛刻程度：{severity.value}
 {venue_style_block}
+
+{literature_block}
 
 你已经收到了以下审稿人的独立审稿意见：
 {reviews_summary}
@@ -371,10 +380,12 @@ def get_revision_roadmap_prompt(
     reviews: list["SingleReview"],
     meta_review: "MetaReview",
     severity: Severity,
+    literature: "LiteratureContext | None" = None,
 ) -> str:
     """Generate the mentor-perspective revision roadmap prompt."""
     reviews_summary = _format_reviews_for_ac(reviews)
     priorities = "\n".join(f"- {item}" for item in meta_review.actionable_priorities) or "- 暂无"
+    literature_block = _format_literature_context_optional(literature)
     return f"""
 你现在的角色是作者的**导师**，不再是审稿人或 AC。
 
@@ -383,6 +394,8 @@ def get_revision_roadmap_prompt(
 
 论文标题：{paper.title}
 苛刻程度：{severity.value}
+
+{literature_block}
 
 ## 审稿意见摘要
 {reviews_summary}
@@ -479,3 +492,11 @@ def _severity_modifier(severity: Severity) -> str:
         f"- 语气：{modifier['tone']}\n"
         f"- 决策阈值：{modifier['threshold']}"
     )
+
+
+def _format_literature_context_optional(literature: "LiteratureContext | None") -> str:
+    if literature is None:
+        return ""
+    from hypo_research.review.literature import format_literature_context
+
+    return format_literature_context(literature)

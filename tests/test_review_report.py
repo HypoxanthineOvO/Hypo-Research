@@ -16,6 +16,7 @@ from hypo_research.review.report import (
     generate_report_json,
     generate_report_markdown,
 )
+from hypo_research.review.literature import LiteratureContext, LiteratureReference
 
 
 def review(
@@ -255,3 +256,29 @@ def test_consistency_summary_when_no_flags() -> None:
 def test_revision_item_priority_validation() -> None:
     with pytest.raises(ValueError):
         RevisionItem("高优先级", "x", "p", "s", "1 天", [])
+
+
+def test_markdown_renders_literature_section_when_present() -> None:
+    lit = LiteratureContext(
+        query_terms=["fhe accelerator"],
+        references=[
+            LiteratureReference("Uncited Work", ["Alice"], "DAC", 2025, "abstract", 10, "p1", False),
+            LiteratureReference("Cited Work", ["Bob"], "TCAS-I", 2024, "abstract", 30, "p2", True),
+        ],
+        search_timestamp="2026-04-27T12:00:00",
+        year_range=(2023, 2026),
+        paper_title="Paper",
+    )
+    report = ReviewReport("Paper", None, "standard", ["a"], [review("a", "Alice", 6, "Borderline")], literature=lit)
+
+    markdown = generate_report_markdown(report)
+
+    assert "## 📚 相关文献检索结果" in markdown
+    assert "Uncited Work" in markdown
+    assert "⚠️ 未引用" in markdown
+
+
+def test_markdown_omits_literature_section_when_absent() -> None:
+    report = ReviewReport("Paper", None, "standard", ["a"], [review("a", "Alice", 6, "Borderline")])
+
+    assert "## 📚 相关文献检索结果" not in generate_report_markdown(report)

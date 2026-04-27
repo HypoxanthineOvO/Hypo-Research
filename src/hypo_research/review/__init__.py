@@ -7,6 +7,13 @@ from hypo_research.review.parser import (
     Table,
     parse_paper,
 )
+from hypo_research.review.literature import (
+    LiteratureContext,
+    LiteratureReference,
+    extract_search_queries,
+    format_literature_context,
+    search_literature,
+)
 from hypo_research.review.report import (
     ConsistencyFlag,
     ConsistencyReport,
@@ -39,6 +46,8 @@ __all__ = [
     "Figure",
     "ConsistencyFlag",
     "ConsistencyReport",
+    "LiteratureContext",
+    "LiteratureReference",
     "MetaReview",
     "PaperStructure",
     "ReviewReport",
@@ -50,6 +59,8 @@ __all__ = [
     "SingleReview",
     "Table",
     "VenueProfile",
+    "extract_search_queries",
+    "format_literature_context",
     "generate_consistency_report",
     "generate_report_json",
     "generate_report_markdown",
@@ -57,4 +68,5 @@ __all__ = [
     "get_revision_roadmap_prompt",
     "get_reviewer_prompt",
     "parse_paper",
+    "search_literature",
 ]
