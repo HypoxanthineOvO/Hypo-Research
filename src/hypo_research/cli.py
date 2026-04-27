@@ -33,6 +33,7 @@ from hypo_research.core.sources import (
 )
 from hypo_research.core.verifier import Verifier
 from hypo_research.hooks import AutoBibHook, AutoReportHook, AutoVerifyHook, HookContext, HookEvent, HookManager
+from hypo_research.ideation.cli import IDEATION_COMMANDS
 from hypo_research.meeting import (
     GlossaryManager,
     GlossaryTerm,
@@ -2124,6 +2125,11 @@ def verify(
     else:
         click.echo(rendered, nl=False)
     raise click.exceptions.Exit(_verify_exit_code(report))
+
+
+for ideation_command in IDEATION_COMMANDS:
+    if ideation_command.name not in main.commands:
+        main.add_command(ideation_command)
 
 
 if __name__ == "__main__":

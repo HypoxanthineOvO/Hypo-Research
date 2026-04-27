@@ -2,8 +2,8 @@
 name: hypo-research
 description: >
   Aggregate Codex skill bundle for academic literature search, screening,
-  citation traversal, LaTeX lint/fix, bibliography verification, polishing,
-  translation, and one-command paper checks.
+  citation traversal, research ideation, experiment planning, LaTeX lint/fix,
+  bibliography verification, polishing, translation, and one-command paper checks.
 license: MIT
 ---
 
@@ -11,7 +11,7 @@ license: MIT
 
 ## 概述
 
-这个 bundle 打包了 Hypo-Research 的 12 个子工作流，适合通过 Codex 的 GitHub skill 安装流程一次性安装。
+这个 bundle 打包了 Hypo-Research 的 17 个子工作流，适合通过 Codex 的 GitHub skill 安装流程一次性安装。
 
 ## 安装
 
@@ -33,12 +33,17 @@ python3 ~/.codex/skills/.system/skill-installer/scripts/install-skill-from-githu
 
 ## Skills
 
-本 bundle 内嵌 12 个 skill 文档，位于 `skills/` 目录：
+本 bundle 内嵌 17 个 skill 文档，位于 `skills/` 目录：
 
 - `skills/hypo-survey/SKILL.md` — 综合调研
 - `skills/hypo-search/SKILL.md` — 快速检索
 - `skills/hypo-screen/SKILL.md` — 筛选分类
 - `skills/hypo-cite/SKILL.md` — 引文图遍历
+- `skills/hypo-idea/SKILL.md` — Research idea 生成
+- `skills/hypo-challenge/SKILL.md` — Idea 苏格拉底式拷打
+- `skills/hypo-experiment/SKILL.md` — 实验设计
+- `skills/hypo-plan/SKILL.md` — 科研工作规划
+- `skills/hypo-pilot/SKILL.md` — 娄萌萌全流程研究领航
 - `skills/hypo-lint/SKILL.md` — LaTeX lint + auto-fix
 - `skills/hypo-verify/SKILL.md` — 引用验证
 - `skills/hypo-polish/SKILL.md` — 英文润色
@@ -53,6 +58,7 @@ python3 ~/.codex/skills/.system/skill-installer/scripts/install-skill-from-githu
 当任务落在以下类别时，先读取对应子 skill，再执行：
 
 - 文献调研：`hypo-survey` / `hypo-search` / `hypo-screen` / `hypo-cite`
+- 创意与规划：`hypo-idea` / `hypo-challenge` / `hypo-experiment` / `hypo-plan` / `hypo-pilot`
 - 论文写作：`hypo-lint` / `hypo-verify` / `hypo-polish` / `hypo-translate` / `hypo-check` / `hypo-presubmit`
 - 会议纪要：`hypo-meeting`
 - 模拟审稿：`hypo-review`
@@ -63,4 +69,4 @@ python3 ~/.codex/skills/.system/skill-installer/scripts/install-skill-from-githu
 uv run hypo-research <subcommand> [options]
 ```
 
-可用子命令：`search`, `cite`, `lint`, `verify`, `check`, `presubmit`, `review`, `meeting`, `glossary`, `init`
+可用子命令：`search`, `cite`, `idea`, `challenge`, `experiment`, `plan`, `pilot`, `lint`, `verify`, `check`, `presubmit`, `review`, `meeting`, `glossary`, `init`
