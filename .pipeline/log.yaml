@@ -17,6 +17,12 @@
   commit: 2dabd9a
   summary: "Fixed plugin.json manifest: author field changed from string to object {name} format."
   tests: "N/A (manifest format fix)"
+- time: "2026-05-05T23:25:00+08:00"
+  type: release
+  status: released
+  version: "0.7.1"
+  commit: 4b1bcf8
+  summary: "Released v0.7.1: fixed plugin manifest author field type. Regression: 492 passed."
 - time: "2026-05-05T15:31:52+08:00"
   type: release
   status: prepared

@@ -34,6 +34,7 @@ Cycle C2 已验收完成。下一步可使用 `/hw:patch` 处理轻量 follow-up
 
 | Time | Type | Event | Summary |
 |---|---|---|---|
+| 23:25 | Release | v0.7.1 | 修复 plugin manifest author 字段类型 (4b1bcf8) |
 | 15:31 | Release | v0.7.0 prepared | Docs整理、skill mirror sync、version/changelog 更新 |
 | 23:20 | Patch | P002 closed | 修复 plugin.json author 字段类型 (2dabd9a) |
 | 13:35 | Patch | P001 closed | 支持论文 target 文件夹和 zip/tar 压缩包 |
