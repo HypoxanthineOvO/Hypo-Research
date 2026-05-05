@@ -1,6 +1,6 @@
 {
   "name": "hypo-research",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Academic research assistant toolkit for survey, search, screening, citation traversal, research ideation, persistent project management, rebuttal generation, experiment planning, LaTeX lint/fix, bibliography verification, polishing, translation, check and presubmit pipelines, multi-persona paper review, and meeting minutes.",
   "author": {
     "name": "HypoxanthineOvO"

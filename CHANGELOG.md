@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.7.1 - 2026-05-05
+
+### Fixes
+
+- Fixed plugin manifest: `author` field changed from string to object `{name}` format, resolving installation failure on Claude Code plugin validation.
+
+### Tests
+
+- Full regression: `492 passed, 3 skipped, 2 warnings`.
+
 ## v0.7.0 - 2026-05-05
 
 ### Features
