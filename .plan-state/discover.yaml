@@ -1,0 +1,31 @@
+mode: interactive
+workflow_kind: analysis
+analysis_kind: repo_system
+rounds_completed: 5
+completed_at: "2026-05-05T00:08:57+08:00"
+user_end_signal: "好 开始吧"
+deliverable: "Strategic/architecture review report plus executable roadmap"
+primary_users:
+  - PhD students
+  - graduate researchers
+  - independent researchers
+scope:
+  - Hypo-Workflow relationship strategy
+  - instruction and entry information architecture
+  - interface and PDF/full-text reading capability
+  - literature review report and research OS roadmap
+validation:
+  - code reading
+  - product reasoning
+  - lightweight tool/competitor research
+  - optional PDF prototype with two user-provided PDFs
+constraints:
+  - avoid polluting Hypo-Workflow for non-research users
+  - use fixed high-level scenarios instead of requiring users to memorize skill names
+  - ask for two PDFs before milestone 3 prototype work
+  - implementation belongs in a later Cycle
+confirmed_decisions:
+  - "Compare four Hypo-Workflow relationship presets: merge, plugin, dependency, independent."
+  - "Use a few fixed user-facing scenarios as the likely entry model."
+  - "Full-text reading must support methods, datasets, key figures, and claim evidence checks."
+  - "Final roadmap should include long-term research OS / PhD workflow vision and near-term slices."

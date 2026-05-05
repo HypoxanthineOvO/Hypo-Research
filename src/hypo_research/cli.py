@@ -32,6 +32,7 @@ from hypo_research.core.sources import (
     SourceError,
 )
 from hypo_research.core.verifier import Verifier
+from hypo_research.guide import route_request
 from hypo_research.hooks import AutoBibHook, AutoReportHook, AutoVerifyHook, HookContext, HookEvent, HookManager
 from hypo_research.ideation.cli import IDEATION_COMMANDS
 from hypo_research.meeting import (
@@ -44,6 +45,7 @@ from hypo_research.meeting import (
 )
 from hypo_research.output.json_output import write_search_output
 from hypo_research.output.markdown_report import generate_report
+from hypo_research.paper_target import PaperTargetError, resolve_paper_target
 from hypo_research.presubmit import (
     PresubmitVerdict,
     render_presubmit_report,
@@ -614,6 +616,254 @@ def init(target_dir: Path, force: bool) -> None:
         click.echo(f"Detected main_file: {detected_main}")
     if detected_bibs:
         click.echo(f"Detected bib_files: {', '.join(detected_bibs)}")
+
+
+@main.command()
+@click.option(
+    "--execute",
+    is_flag=True,
+    default=False,
+    help="Execute safe routes when required inputs are available.",
+)
+@click.option(
+    "--target",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Input file or directory for executable guide routes.",
+)
+@click.option(
+    "--out",
+    "output_dir",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Output directory for routes that write artifacts.",
+)
+@click.option("--query", default=None, help="Explicit literature search query for execute mode.")
+@click.option("--venue", default=None, help="Venue profile for check/review routes.")
+@click.argument("request", nargs=-1, required=True)
+def guide(
+    execute: bool,
+    target: Path | None,
+    output_dir: Path | None,
+    query: str | None,
+    venue: str | None,
+    request: tuple[str, ...],
+) -> None:
+    """Route a natural-language research request to the right workflow."""
+    route = route_request(" ".join(request))
+    click.echo(f"Route: {route.category}")
+    click.echo(f"Scenario: {route.scenario}")
+    click.echo(f"Confidence: {route.confidence:.2f}")
+    click.echo(f"Rationale: {route.rationale}")
+    click.echo("")
+    click.echo("Suggested commands:")
+    for command in route.suggested_commands:
+        click.echo(f"- {command}")
+    if route.follow_up_questions:
+        click.echo("")
+        click.echo("Follow-up questions:")
+        for question in route.follow_up_questions:
+            click.echo(f"- {question}")
+    if execute:
+        click.echo("")
+        _execute_guide_route(route, target=target, output_dir=output_dir, query=query, venue=venue)
+
+
+def _execute_guide_route(
+    route: object,
+    *,
+    target: Path | None,
+    output_dir: Path | None,
+    query: str | None,
+    venue: str | None,
+) -> None:
+    category = getattr(route, "category", "")
+    if category == "check":
+        _execute_guide_check(target=target, venue=venue)
+        return
+    if category == "read":
+        _execute_guide_read(target=target, output_dir=output_dir)
+        return
+    if category == "review":
+        _execute_guide_review(target=target, venue=venue, route=route)
+        return
+    if category == "search":
+        _execute_guide_search(query=query, output_dir=output_dir, route=route)
+        return
+
+    _render_guide_cannot_execute(route, "No safe execute path is defined for this route.")
+
+
+def _execute_guide_check(*, target: Path | None, venue: str | None) -> None:
+    if target is None:
+        _render_guide_cannot_execute_text("Missing --target <paper.tex> for check execution.")
+        return
+    if not target.exists():
+        raise click.ClickException(f"Target not found: {target}")
+
+    try:
+        with resolve_paper_target(target, prefer=("latex",)) as paper_path:
+            click.echo(f"Executing: hypo-research check {paper_path} --full --no-save")
+            config = _load_command_config(start_dir=paper_path.parent)
+            venue_profile = _resolve_venue_profile(cli_venue=venue, config=config)
+            report = run_check(
+                paper_path,
+                config=config,
+                save_report=False,
+                venue=venue_profile,
+                full=True,
+            )
+    except PaperTargetError as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(render_check_report(report))
+    if check_exit_code(report) != 0:
+        click.echo(f"Check completed with findings (exit code would be {check_exit_code(report)}).")
+
+
+def _execute_guide_read(*, target: Path | None, output_dir: Path | None) -> None:
+    if target is None:
+        _render_guide_cannot_execute_text("Missing --target <paper.pdf> for read execution.")
+        return
+    if not target.exists():
+        raise click.ClickException(f"Target not found: {target}")
+    from hypo_research.read import ingest_pdf, outline_artifact
+
+    try:
+        with resolve_paper_target(target, prefer=("pdf",)) as pdf_path:
+            resolved_output = output_dir or Path(".hypo-research-read") / pdf_path.stem
+            click.echo(f"Executing: hypo-research read ingest {pdf_path} --out {resolved_output}")
+            ingest_pdf(pdf_path, resolved_output)
+            artifact_path = resolved_output / "artifact.json"
+            click.echo(f"Executing: hypo-research read outline {artifact_path}")
+            click.echo(outline_artifact(artifact_path))
+    except PaperTargetError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def _execute_guide_review(*, target: Path | None, venue: str | None, route: object) -> None:
+    if target is None or venue is None:
+        _render_guide_cannot_execute(
+            route,
+            "Review execution requires --target <paper> and --venue <venue>.",
+        )
+        return
+    if not target.exists():
+        raise click.ClickException(f"Target not found: {target}")
+    if venue.lower() not in REVIEW_VENUES:
+        choices = ", ".join(sorted(REVIEW_VENUES))
+        raise click.ClickException(f"Unknown review venue '{venue}'. Available: {choices}")
+
+    try:
+        with resolve_paper_target(target, prefer=("latex", "pdf")) as paper_path:
+            click.echo(f"Executing: hypo-research review {paper_path} --venue {venue} --panel full --no-literature")
+            paper = parse_paper(paper_path.as_posix())
+    except PaperTargetError as exc:
+        raise click.ClickException(str(exc)) from exc
+    reviewer_ids = _resolve_review_panel("full", None)
+    report = _build_review_scaffold(paper, reviewer_ids, ReviewSeverity.STANDARD, venue, None)
+    click.echo(generate_review_report_markdown(report))
+
+
+def _execute_guide_search(*, query: str | None, output_dir: Path | None, route: object) -> None:
+    if not query:
+        _render_guide_cannot_execute(
+            route,
+            "Search execution requires --query so the natural-language request is not guessed as a search string.",
+        )
+        return
+
+    click.echo(f'Executing: hypo-research search "{query}" --max-results 10 --source all')
+    config = _load_command_config()
+    sources = _build_sources(tuple(config.survey.sources) or ("all",), None, None)
+    hook_manager = _build_hook_manager(no_hooks=False, no_bib=False, no_report=False, no_auto_verify=False)
+    params = SearchParams(query=query, max_results=10, sort_by="relevance")
+    result = asyncio.run(_run_single_search(params, output_dir.as_posix() if output_dir is not None else None, sources, hook_manager))
+    click.echo(f"Search results: {len(result.papers)} papers")
+    click.echo(f"Output directory: {result.output_dir}")
+
+
+def _render_guide_cannot_execute(route: object, reason: str) -> None:
+    click.echo(f"Cannot execute safely: {reason}")
+    commands = getattr(route, "suggested_commands", [])
+    if commands:
+        click.echo("Suggested commands:")
+        for command in commands:
+            click.echo(f"- {command}")
+
+
+def _render_guide_cannot_execute_text(reason: str) -> None:
+    click.echo(f"Cannot execute safely: {reason}")
+
+
+@main.group()
+def read() -> None:
+    """Read and structure academic papers."""
+
+
+@read.command("ingest")
+@click.argument("pdf", type=click.Path(exists=True, path_type=Path))
+@click.option(
+    "--out",
+    "output_dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    required=True,
+    help="Output directory for artifact.json.",
+)
+def read_ingest(pdf: Path, output_dir: Path) -> None:
+    """Ingest a PDF into a PaperReadArtifact."""
+    from hypo_research.read import ingest_pdf
+
+    try:
+        with resolve_paper_target(pdf, prefer=("pdf",)) as pdf_path:
+            artifact = ingest_pdf(pdf_path, output_dir)
+    except PaperTargetError as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(f"Wrote {output_dir / 'artifact.json'}")
+    click.echo(f"Title: {artifact.title}")
+    click.echo(f"Backend: {artifact.backend}")
+    click.echo(f"Pages: {artifact.page_count}")
+    click.echo(f"Extraction quality: {artifact.extraction_quality}")
+
+
+@read.command("outline")
+@click.argument("artifact", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+def read_outline(artifact: Path) -> None:
+    """Render an outline from artifact.json."""
+    from hypo_research.read import outline_artifact
+
+    click.echo(outline_artifact(artifact))
+
+
+@read.command("extract")
+@click.argument("artifact", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option(
+    "--focus",
+    default="methods,datasets,figures,claims",
+    show_default=True,
+    help="Comma-separated card groups to extract.",
+)
+@click.option(
+    "--out",
+    "output_dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    required=True,
+    help="Output directory for cards.json and cards.md.",
+)
+def read_extract(artifact: Path, focus: str, output_dir: Path) -> None:
+    """Extract heuristic L2 evidence cards from artifact.json."""
+    from hypo_research.read import extract_evidence_cards
+
+    focus_values = [item.strip() for item in focus.split(",") if item.strip()]
+    result = extract_evidence_cards(artifact, output_dir, focus=focus_values)
+    click.echo(f"Wrote {output_dir / 'cards.json'}")
+    click.echo(f"Wrote {output_dir / 'cards.md'}")
+    click.echo(
+        "Cards: "
+        f"methods={len(result.method_cards)}, "
+        f"datasets={len(result.dataset_cards)}, "
+        f"figures={len(result.figure_cards)}, "
+        f"claims={len(result.claim_cards)}"
+    )
 
 
 @main.command()
@@ -1910,6 +2160,13 @@ def lint(
     default=False,
     help="Do not save a JSON report file.",
 )
+@click.option(
+    "--full",
+    "full_check",
+    is_flag=True,
+    default=False,
+    help="Include Agent-facing writing and claim/evidence review checklist.",
+)
 @click.argument(
     "path",
     type=click.Path(path_type=Path),
@@ -1927,37 +2184,40 @@ def check(
     bib: Path | None,
     json_mode: bool,
     no_save: bool,
+    full_check: bool,
     path: Path,
 ) -> None:
     """Run the full writing-quality check pipeline."""
     if backup and not no_dry_run:
         raise click.ClickException("--backup requires --no-dry-run")
 
-    config_start_dir = project_dir or path.parent
-    config = _load_command_config(start_dir=config_start_dir)
-    venue_profile = _resolve_venue_profile(cli_venue=venue, config=config)
-    resolved_project_dir = project_dir.resolve() if project_dir is not None else None
-    resolved_path = _resolve_optional_file(path, project_dir=resolved_project_dir, must_exist=True)
-    assert resolved_path is not None
-    selected_fix_rules = _parse_rules_option(rules)
-
-    if bib is not None and config.project.bib_files != [bib.as_posix()]:
-        config.project.bib_files = [bib.as_posix()]
-
     try:
-        report = run_check(
-            resolved_path,
-            config=config,
-            fix=not no_fix,
-            dry_run=not no_dry_run,
-            backup=backup,
-            lint_only=lint_only,
-            no_fix=no_fix,
-            verify=not no_verify,
-            rules=sorted(selected_fix_rules) if selected_fix_rules is not None else None,
-            save_report=not no_save,
-            venue=venue_profile,
-        )
+        with resolve_paper_target(path, prefer=("latex",)) as resolved_path:
+            config_start_dir = project_dir or resolved_path.parent
+            config = _load_command_config(start_dir=config_start_dir)
+            venue_profile = _resolve_venue_profile(cli_venue=venue, config=config)
+            selected_fix_rules = _parse_rules_option(rules)
+
+            if bib is not None and config.project.bib_files != [bib.as_posix()]:
+                config.project.bib_files = [bib.as_posix()]
+
+            report = run_check(
+                resolved_path,
+                config=config,
+                fix=not no_fix,
+                dry_run=not no_dry_run,
+                backup=backup,
+                lint_only=lint_only,
+                no_fix=no_fix,
+                verify=not no_verify,
+                rules=sorted(selected_fix_rules) if selected_fix_rules is not None else None,
+                save_report=not no_save,
+                venue=venue_profile,
+                full=full_check,
+            )
+    except PaperTargetError as exc:
+        click.echo(str(exc), err=True)
+        raise click.exceptions.Exit(2)
     except Exception as exc:
         click.echo(str(exc), err=True)
         raise click.exceptions.Exit(2)

@@ -11,6 +11,14 @@ license: MIT
 
 # /hypo-presubmit — 论文提交前检查
 
+## 定位
+
+`presubmit` 是兼容/legacy thin wrapper，保留 PASS / WARNING / FAIL 判定和 CI 友好返回码。日常论文体检优先使用：
+
+```bash
+uv run hypo-research check paper.tex --full
+```
+
 ## 功能
 
 在用户准备提交论文时，运行全面的提交前检查 pipeline，包括：

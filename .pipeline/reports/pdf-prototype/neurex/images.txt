@@ -1,0 +1,30 @@
+page   num  type   width height color comp bpc  enc interp  object ID x-ppi y-ppi size ratio
+--------------------------------------------------------------------------------------------
+   2     0 image    1832  1832  icc     3   8  jpeg   yes      216  0  1655  1655  340K 3.5%
+   2     1 smask    1832  1832  gray    1   8  image  yes      216  0  1655  1655 84.2K 2.6%
+   2     2 image       1     1  icc     3   8  image  yes      217  0     1     1   11B 367%
+   2     3 smask       1     1  gray    1   8  image  yes      217  0     1     1    9B 900%
+   2     4 image       1   800  icc     3   8  image  yes      218  0     1  1159   34B 1.4%
+   2     5 smask       1   800  gray    1   8  image  yes      218  0     1  1159   19B 2.4%
+   2     6 image       1     1  icc     3   8  image  yes      217  0     1     1   11B 367%
+   2     7 smask       1     1  gray    1   8  image  yes      217  0     1     1    9B 900%
+   2     8 image     800     1  icc     3   8  image  yes      219  0  1159     1   34B 1.4%
+   2     9 smask     800     1  gray    1   8  image  yes      219  0  1159     1   19B 2.4%
+   2    10 image     800   800  icc     3   8  jpeg   yes      220  0  1159  1159 87.2K 4.6%
+   2    11 smask     800   800  gray    1   8  image  yes      220  0  1159  1159 21.2K 3.4%
+   2    12 image     800     1  icc     3   8  image  yes      219  0  1159     1   34B 1.4%
+   2    13 smask     800     1  gray    1   8  image  yes      219  0  1159     1   19B 2.4%
+   2    14 image       1     1  icc     3   8  image  yes      217  0     1     1   11B 367%
+   2    15 smask       1     1  gray    1   8  image  yes      217  0     1     1    9B 900%
+   2    16 image       1   800  icc     3   8  image  yes      221  0     1  1159   34B 1.4%
+   2    17 smask       1   800  gray    1   8  image  yes      221  0     1  1159   19B 2.4%
+   2    18 image       1     1  icc     3   8  image  yes      217  0     1     1   11B 367%
+   2    19 smask       1     1  gray    1   8  image  yes      217  0     1     1    9B 900%
+   2    20 image     161   160  icc     3   8  jpeg   yes      222  0  1655  1655 1309B 1.7%
+   2    21 smask     161   160  gray    1   8  image  yes      222  0  1655  1655 1978B 7.7%
+   2    22 image     416   466  icc     3   8  image  yes      223  0  1655  1655 2560B 0.4%
+   2    23 smask     416   466  gray    1   8  image  yes      223  0  1655  1655 6464B 3.3%
+   2    24 image     800   800  icc     3   8  jpeg   yes      220  0  1117  1160 87.2K 4.6%
+   2    25 smask     800   800  gray    1   8  image  yes      220  0  1117  1160 21.2K 3.4%
+   3    26 image     800   800  icc     3   8  jpeg   yes      330  0  1287  1041 96.4K 5.1%
+   3    27 smask     800   800  gray    1   8  image  yes      330  0  1287  1041 21.7K 3.5%

@@ -1,0 +1,25 @@
+mode: single_feature
+workflow_kind: analysis
+analysis_kind: repo_system
+decomposed_at: "2026-05-05T00:08:57+08:00"
+milestones:
+  -
+    id: M01
+    name: Positioning and Hypo-Workflow Relationship Review
+    objective: Decide which relationship model should guide Hypo-Research and Hypo-Workflow.
+    validation: Decision matrix plus recommendation.
+  -
+    id: M02
+    name: Instruction and Entry Information Architecture Review
+    objective: Redesign the user-facing entry model around a few natural research scenarios.
+    validation: Entry IA, intent taxonomy, routing tree, and sample dialogues.
+  -
+    id: M03
+    name: PDF Full-Text Reading and Conversion Capability Review
+    objective: Investigate paper PDF to MD/HTML and figure/table extraction options, then design a graded full-text reading pipeline.
+    validation: Tool research, interface sketch, and optional two-PDF prototype evidence.
+  -
+    id: M04
+    name: Literature Report Deep-Read Workflow and Roadmap
+    objective: Redesign research reports and synthesize a long-term research OS roadmap.
+    validation: Final strategic report and implementation Cycle candidates.

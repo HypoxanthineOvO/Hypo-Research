@@ -23,6 +23,16 @@ license: MIT
 
 ## CLI 用法
 
+### First-use 推荐
+
+```bash
+uv run hypo-research check paper.tex --full
+uv run hypo-research check ./paper-folder --full
+uv run hypo-research check submission.zip --full
+```
+
+`--full` 会在结构检查和引用验证之外，附带 Agent-facing writing / claim / evidence checklist，适合投稿前人工复核。
+
 ### 基本检查（dry-run 预览修复）
 
 ```bash

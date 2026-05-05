@@ -4,7 +4,7 @@
 > 支持作为 Codex / Claude Skill 调用（`$hypo-xxx`），也可作为独立 CLI 使用。
 
 [![Tests](https://img.shields.io/badge/tests-468%20total-brightgreen)]()
-[![Skills](https://img.shields.io/badge/skills-19-blue)]()
+[![Skills](https://img.shields.io/badge/skills-21-blue)]()
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)]()
 
@@ -12,7 +12,7 @@
 
 ## ✨ Features
 
-- **19 个 Skill** 覆盖科研全流程，每个 Skill 独立可用
+- **21 个 Skill** 覆盖科研全流程，每个 Skill 独立可用
 - **项目级管理**：多论文追踪、进度仪表盘、会议纪要、上下文自动串联
 - **多源文献检索**：Semantic Scholar / arXiv / OpenAlex，自动去重、排序和元数据质量检查
 - **模拟审稿**：7 个审稿人角色 + AC Meta-Review + 文献对比审稿
@@ -57,20 +57,35 @@ $skill-installer https://github.com/HypoxanthineOvO/Hypo-Research/tree/main/.age
 
 ## 🚀 Quick Start
 
+第一次使用不需要记住所有 skill 名。先用 `guide` 让 CLI 判断入口，再按建议进入直接子命令：
+
 ```bash
-# 定向检索论文，默认启用 BibTeX、Markdown 报告和 auto-verify hook
-uv run hypo-research search "LLM for code generation" --max-results 10
+# 让自然语言请求路由到 check / read / review / search 等工作流
+uv run hypo-research guide "我论文快投了，帮我检查一下"
+
+# 安全执行已知路径：论文检查会运行 check --full
+uv run hypo-research guide "我论文快投了，帮我检查一下" \
+  --execute --target paper.tex
+
+# 读 PDF：ingest 生成 artifact.json，再 outline 给出结构化提纲
+uv run hypo-research guide "读一下这篇 PDF 的方法和实验" \
+  --execute --target paper.pdf --out data/reads/paper
+
+uv run hypo-research read ingest paper.pdf --out data/reads/paper
+uv run hypo-research read outline data/reads/paper/artifact.json
+
+# 一键写作检查，--full 会附带 Agent-facing claim / evidence / writing checklist
+uv run hypo-research check paper.tex --full
+uv run hypo-research check ./paper-folder --full
+uv run hypo-research check submission.zip --full
+
+# 模拟审稿（ICML/NeurIPS/ACL 等 venue id 可按 --list-venues 查看）
+uv run hypo-research review paper.tex --venue icml --panel full --severity standard
 
 # 多 query 扩展检索
 uv run hypo-research search "LLM for code generation" \
   -eq "large language models program synthesis" \
   -eq "code generation benchmark evaluation"
-
-# 检查论文 LaTeX 项目
-uv run hypo-research check paper.tex
-
-# 模拟审稿（ICML/NeurIPS/ACL 等 venue id 可按 --list-venues 查看）
-uv run hypo-research review paper.tex --venue icml --panel full --severity standard
 
 # 生成科研创意：默认同时输出 Quick Win 和 Ambitious
 uv run hypo-research idea "LLM-assisted literature review" --num-ideas 3
@@ -87,6 +102,26 @@ uv run hypo-research project status cryo-computing
 
 ## 🛠️ Skills 一览
 
+### 一线入口
+
+| 入口 | CLI | 适合场景 |
+|---|---|---|
+| `hypo-guide` | `guide` | 不确定该用哪个工作流；可用 `--execute` 执行安全路径 |
+| `hypo-check` | `check --full` | 论文快投、写作质量 gate、LaTeX + BibTeX 聚合检查 |
+| `hypo-review` | `review` | 模拟审稿、AC meta-review、revision roadmap |
+| `hypo-read` | `read ingest/outline/extract` | PDF 结构化读取、提纲、方法/数据/图表/claim evidence cards |
+
+下面的 expert skills 仍然是一等入口，适合明确任务或深度串联。
+
+### Paper Target 支持
+
+论文 target 不限于单个文件：
+
+- `check` / `review`：支持 `.tex`、LaTeX 项目文件夹、`.pdf`，以及 `.zip` / `.tar*` 压缩包。
+- `read ingest`：支持 `.pdf`、包含唯一 PDF 的文件夹，以及 `.zip` / `.tar*` 压缩包。
+- `guide --execute --target` 复用同一套解析规则。
+- 如果文件夹或压缩包里有多个候选主文件/PDF，CLI 会列出候选并要求指定具体文件。
+
 ### 📚 文献调研（4 个）
 
 | Skill | CLI 入口 | 功能 |
@@ -96,14 +131,15 @@ uv run hypo-research project status cryo-computing
 | `hypo-screen` | Skill 文档 | 按规则筛选和分类已有调研结果 |
 | `hypo-cite` | `cite` | 从种子论文沿引用 / 被引关系扩展候选池 |
 
-### ✍️ 论文写作与检查（6 个）
+### ✍️ 论文阅读、写作与检查（7 个）
 
 | Skill | CLI 入口 | 功能 |
 |---|---|---|
+| `hypo-read` | `read` | PDF ingest / outline / evidence cards |
 | `hypo-lint` | `lint` | LaTeX label / ref / float / BibTeX 结构检查 |
 | `hypo-verify` | `verify` | BibTeX 引用真实性和元数据交叉验证 |
 | `hypo-check` | `check` | 一键 writing pipeline：lint / fix / verify / report |
-| `hypo-presubmit` | `presubmit` | 提交前统一检查，输出 PASS / WARNING / FAIL |
+| `hypo-presubmit` | `presubmit` | 兼容/legacy 提交前 wrapper，保留 PASS / WARNING / FAIL 输出 |
 | `hypo-polish` | Skill 文档 | 学术英文润色和定向改写 |
 | `hypo-translate` | Skill 文档 | 中英双语 LaTeX 草稿同步维护 |
 
@@ -180,12 +216,14 @@ $hypo-project 查看 cryo-computing 的项目仪表盘
 ```bash
 uv run hypo-research --help
 
+uv run hypo-research guide       # 自然语言路由，可选 --execute
+uv run hypo-research read        # PDF 读取、提纲和 evidence cards
 uv run hypo-research search      # 文献检索
 uv run hypo-research cite        # 引用图扩展
 uv run hypo-research lint        # LaTeX 结构检查
 uv run hypo-research verify      # BibTeX 元数据验证
-uv run hypo-research check       # 写作质量一键检查
-uv run hypo-research presubmit   # 提交前检查
+uv run hypo-research check       # 写作质量一键检查，推荐 --full
+uv run hypo-research presubmit   # 兼容/legacy 提交前检查 wrapper
 uv run hypo-research review      # 模拟审稿
 uv run hypo-research idea        # 创意生成
 uv run hypo-research challenge   # Idea 拷打
@@ -434,7 +472,7 @@ Hypo-Research/
 │   ├── project/           # 项目管理、进度、仪表盘、会议上下文、rebuttal
 │   ├── output/            # Markdown / BibTeX / JSON 输出
 │   └── cli.py             # CLI 入口
-├── skills/                # Skill 指令文件（19 个）
+├── skills/                # Skill 指令文件（21 个）
 ├── .agents/skills/        # Codex Skill bundle 镜像
 ├── plugins/               # Claude Plugin 镜像
 ├── tests/                 # 测试（468 total）

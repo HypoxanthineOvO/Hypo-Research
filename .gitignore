@@ -10,4 +10,8 @@ build/
 .env
 .claude/skills/
 .codex
+.opencode/node_modules/
+.opencode/package.json
+.opencode/package-lock.json
+.opencode/bun.lock
 scripts/

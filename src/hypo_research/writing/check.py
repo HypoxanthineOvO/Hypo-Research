@@ -59,6 +59,15 @@ class StatsStageResult:
 
 
 @dataclass
+class AgentReviewItem:
+    """Subjective Agent follow-up item emitted by full check mode."""
+
+    focus: str
+    prompt: str
+    evidence_hint: str
+
+
+@dataclass
 class CheckReport:
     """Pipeline 聚合报告。"""
 
@@ -71,6 +80,8 @@ class CheckReport:
     verify: VerifyStageResult | None = None
     stats: StatsStageResult = field(default_factory=StatsStageResult)
     issues: list[dict[str, Any]] = field(default_factory=list)
+    full_check: bool = False
+    agent_review_checklist: list[AgentReviewItem] = field(default_factory=list)
     report_path: str | None = None
 
     def to_payload(self) -> dict[str, object]:
@@ -113,6 +124,7 @@ def run_check(
     rules: list[str] | None = None,
     save_report: bool = True,
     venue: VenueProfile | None = None,
+    full: bool = False,
 ) -> CheckReport:
     """Run the writing-quality pipeline and aggregate results into a report."""
     input_path = Path(tex_path).expanduser()
@@ -205,6 +217,8 @@ def run_check(
             bib_entries=len(final_stats.bib_entries),
         ),
         issues=final_issue_payload,
+        full_check=full,
+        agent_review_checklist=_agent_review_checklist(venue_profile) if full else [],
     )
 
     if save_report:
@@ -257,6 +271,10 @@ def render_check_report(report: CheckReport) -> str:
                 f"  rate_limited: {report.verify.rate_limited}",
             ]
         )
+    if report.full_check and report.agent_review_checklist:
+        lines.extend(["", "Agent Review Checklist:"])
+        for item in report.agent_review_checklist:
+            lines.append(f"- {item.focus}: {item.prompt} Evidence: {item.evidence_hint}")
     lines.append(
         "Stats: "
         f"{report.stats.total_sections} sections, "
@@ -284,6 +302,36 @@ def render_check_report(report: CheckReport) -> str:
     if report.report_path is not None:
         lines.append(f"Report saved to: {report.report_path}")
     return "\n".join(lines)
+
+
+def _agent_review_checklist(venue: VenueProfile) -> list[AgentReviewItem]:
+    return [
+        AgentReviewItem(
+            focus="contribution_clarity",
+            prompt="Check whether the problem, core contribution, and delta over prior work are stated clearly.",
+            evidence_hint=f"Use introduction and conclusion; consider {venue.display_name} expectations.",
+        ),
+        AgentReviewItem(
+            focus="figure_claim_support",
+            prompt="Check whether key figures and tables are explained and connected to main claims.",
+            evidence_hint="Inspect captions, figure references, and nearby claims.",
+        ),
+        AgentReviewItem(
+            focus="claim_evidence_consistency",
+            prompt="List strong claims and verify whether experiments or analysis directly support them.",
+            evidence_hint="Compare abstract/introduction claims against experiments and evaluation.",
+        ),
+        AgentReviewItem(
+            focus="related_work_coverage",
+            prompt="Check whether related work covers main method families, recent baselines, and closest alternatives.",
+            evidence_hint="Inspect related work and bibliography; mark uncertain gaps explicitly.",
+        ),
+        AgentReviewItem(
+            focus="terminology_consistency",
+            prompt="Check whether terms, abbreviations, datasets, and method names are used consistently.",
+            evidence_hint="Compare title, abstract, section headings, captions, and tables.",
+        ),
+    ]
 
 
 def check_exit_code(report: CheckReport, *, runtime_error: bool = False) -> int:

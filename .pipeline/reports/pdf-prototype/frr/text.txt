@@ -1,0 +1,907 @@
+                                                                                                                                            1
+
+
+
+
+  FALCON: An FPGA-Accelerated Online Training
+  System for Ultra-Low Latency Post-Processing in
+           Photonic Reservoir Computing
+                  Chaofan Li, Yuxuan Li, Yunxiang He, Haochuan Wan, Cheng Wang and Xin Lou
+
+
+
+   Abstract—Photonic Reservoir Computing (PRC) offers a                               Input                           Output
+promising avenue for high-speed signal processing. However,
+the “speed mismatch” between ultrafast optical inference and
+sluggish electronic readout training hinders its deployment in
+dynamic environments requiring real-time adaptation. The con-              Optical World                       Electrical World
+ventional implementation of Ridge Regression, relying on compu-
+tationally expensive matrix inversion, creates a millisecond-level                                                   Analytical
+latency bottleneck. To bridge this gap, we propose FALCON,                                    Speed Mismatch !                 −1
+a Field-Programmable Gate Array (FPGA)-accelerated online                   Layer 1                                    
+                                                                                                                               
+                                                                                                                                
+training system, featuring two key innovations: (1) A Momentum-                                                                
+Iterative Ridge Solver (MIRS) that reformulates the optimization                                              SLOW!
+problem to eliminate matrix inversion and reduce memory com-                                  ADC
+plexity from O(D2 ) to O(D); (2) A hardware-efficient Hawkeye                                                       Numerical
+Detector Unit (HDU) that provides nanosecond-scale sampling                 Layer 2
+alignment for unstable optical signals. Implemented on a Queen-                                                 Our
+test QT7012L FPGA board featuring a Xilinx Kintex Ultra-                                         PD             Method X               ŷ
+Scale XCKU115-FLVA1517 device, FALCON achieves a training-
+update latency of 20.013 µs, representing a 117× speedup over                                                 FAST!
+edge GPUs; under the reported power accounting, the energy
+efficiency improvement is on the order of three magnitudes. This
+                                                                            Layer 3                            Ridge Regression
+work effectively removes the electronic bottleneck, enabling true
+real-time adaptive optical computing.
+                                                                     Fig. 1. Overview of FALCON: A hardware-accelerated solution for real-time
+                                                                     adaptive training in Photonic Reservoir Computing.
+                       I. I NTRODUCTION
+   In the post-Moore era, Photonic Reservoir Computing
+(PRC) has emerged as a compelling paradigm for process-                 However, the immense bandwidth advantage of the optical
+ing high-speed temporal signals, offering a high-bandwidth,          front-end creates a severe “speed mismatch” for the electronic
+energy-efficient alternative to traditional electronic processors    backend. A critical challenge in PRC is that the optical
+[1], [2]. Building upon the theoretical foundations of Echo          hardware, often based on analog components, is sensitive
+State Networks (ESN) [3] and Liquid State Machines (LSM)             to environmental perturbations such as temperature drift and
+[4], PRC leverages the physical dynamics of optical systems,         mechanical stress [10]. To maintain inference accuracy in such
+such as semiconductor lasers subject to optical feedback [5],        dynamic environments, the readout layer must undergo online
+[6] or integrated silicon photonics [7], to perform non-linear       adaptive training. Online gradient-based schemes have also
+transformations at the speed of light. Fundamentally, PRC            been explored to train analogue readout layers in photonic
+operates as a Recurrent Neural Network (RNN) where the               reservoir computers, avoiding explicit modelling of the readout
+weights of the input and hidden layers are randomly fixed            transfer and mitigating hardware non-idealities [14]. These
+and implemented in the optical domain to ensure high-speed           approaches primarily address the non-idealities of analogue
+processing. Only the output layer weights require training           readouts. In contrast, we focus on the computational and
+via dot-product computations, which are deployed on digital          memory bottleneck of online ridge-regression updates in the
+hardware such as Field-Programmable Gate Arrays (FPGAs)              digital post-processing backend under stringent microsecond
+[8]. Recent advancements have further expanded the scala-            latency budgets. Standard implementations rely on solving
+bility of PRC through novel architectures, including parallel        a linear inverse problem, typically formulated as Ridge Re-
+time-delay reservoirs using quantum dot lasers [8], scalable         gression, to determine the optimal readout weights [8], [11].
+wavelength-multiplexing schemes [9], and deep cascading              Conventionally, this training is performed by calculating the
+injection-locked networks [10], [11]. These architectures have       exact analytical solution via the normal equation, which entails
+demonstrated exceptional performance in bandwidth-intensive          forming a D×D Gram matrix and solving a D×D linear sys-
+tasks, such as chaotic time-series prediction (e.g., the Santa       tem (O(N D2 + D3 ) complexity for an N × D feature matrix)
+Fe benchmark) [12], [8] and nonlinear channel equalization in        [15], [16]. While the optical inference occurs in nanoseconds,
+optical communications [11], [13].                                   this heavy matrix operation on conventional general-purpose
+                                                                                                                                   2
+
+
+
+processors incurs millisecond-level latency due to architectural    regression task, our architecture achieves high parallelism
+overheads [17], creating a prohibitive bottleneck.                  and minimizes the “von Neumann bottleneck” inherent in
+   For illustration, consider a typical PRC setup for chaotic       traditional memory hierarchies [21].
+time-series prediction (e.g., Santa Fe laser dataset [12]),            The main contributions of this paper are summarized as
+where the optical reservoir outputs a feature matrix of shape       follows:
+3000 × 80, requiring real-time weight updates to track the             • Algorithm–Hardware Co-Design: We implement ridge
+chaotic attractor. Due to the high-speed propagation of light,            regression as a streaming, fixed-point mini-batch SGD
+the optical reservoir completes the inference process for a               with momentum (MIRS), explicitly tailored to FPGA tim-
+data batch on the order of hundreds of nanoseconds. Con-                  ing and memory constraints. This formulation eliminates
+sequently, to effectively track the divergence of the chaotic             explicit Gram-matrix inversion while preserving the ridge
+attractor, the online training latency is strictly required to be         objective under fixed-point arithmetic.
+on the order of hundreds of microseconds [11]. However,                • Hardware Architecture: We introduce FALCON, a custom
+according to our profiling results, a standard embedded CPU               FPGA accelerator tailored for MIRS. Crucially, it features
+requires 4.38 ms to compute the regression weights, and an                the Hawkeye Detector Unit, which solves the critical
+edge GPU requires 2.36 ms (details can be found in Table                  synchronization challenge of high-speed serial optical
+III). Crucially, this millisecond-level latency far exceeds the           streams via a frame-header alignment mechanism.
+microsecond-level tolerance window, causing the state of the           • System Implementation & Evaluation: We implement the
+chaotic system to diverge and rendering the calculated weights            full system on a Xilinx Kintex UltraScale FPGA and
+obsolete by the time they are applied. Thus, standard software-           evaluate end-to-end latency/energy as well as robustness-
+based solutions relying on matrix inversion are fundamentally             critical ablations, including bit-width sensitivity (input
+inadequate for real-time adaptive optical tasks.                          vs. accumulator), optimizer hyperparameter robustness
+   To bridge this gap, we propose the Momentum-Iterative                  (learning rate η and momentum α), and batch-size trade-
+Ridge Solver (MIRS), a hardware-efficient numerical scheme                offs.
+designed to replace the sluggish analytical approach. We
+                                                                       The remainder of this paper is organized as follows: Section
+identify that the explicit matrix inversion required by the
+                                                                    II briefly reviews the background of photonic reservoir com-
+closed-form solution is the primary impediment to real-
+                                                                    puting; Section III presents the MIRS algorithm and provides
+time performance. MIRS replaces this with a streaming,
+                                                                    its mathematical derivation; based on this algorithm, Section
+momentum-based iterative approach. This method allows the
+                                                                    IV elaborates on the hardware architecture design of FAL-
+system to rapidly approximate the optimal weights without
+                                                                    CON in detail; Section V introduces the experimental setup,
+performing expensive inversion operations. Furthermore, by
+                                                                    evaluates system performance, and discusses ablation studies
+incorporating L2 regularization, it ensures numerical stability
+                                                                    and hyperparameter selection; finally, Section VI concludes
+against the inherent noise floor of analog optical signals.
+                                                                    the paper and outlines future work.
+While implementing MIRS on a GPU reduces latency, the
+general-purpose memory hierarchy still prevents the system
+from reaching the microsecond-level update regime required                                II. BACKGROUND
+by high-speed optical links [18]. This motivates a dedicated        A. Complexity Analysis of Linear Algebra Primitives
+hardware approach.
+   Consequently, we further propose FALCON, a custom                   To quantify the hardware efficiency of regression solvers,
+FPGA-based accelerator architecture tailored for MIRS. Com-         we first analyze the complexity of the fundamental linear
+pared with instruction-driven GPUs, FPGAs offer superior            algebra operations involved. We define the input dimensions
+determinism and lower latency for processing complex dynam-         as N (number of samples) and D (number of features). The
+ical systems [18], [19], [20]. Beyond simple computational ac-      complexity is measured in Floating-Point Operations (FLOPs)
+celeration, FALCON addresses the critical “data transmission        and the minimum memory required for intermediate data
+and synchronization” challenge in optical-electrical hybrid         storage.
+systems. Specifically, the optical reservoir generates high-           Matrix multiplication is the core computational primitive,
+dimensional feature signals (e.g., 80 nodes [9], [11]) at each      which can be categorized based on its input dimensions:
+time step, which are typically time-multiplexed at the photonic        • Vector Operations (Basic Linear Algebra Subprograms
+front-end and converted to an electrical waveform by a high-             (BLAS) Level 1): Operations like vector addition and
+speed photodiode (PD) before being captured by the Analog-               scalar-vector multiplication (AXPY) have both compu-
+to-Digital Converter (ADC). Ensuring that the ADC perfectly              tational and storage complexity of O(D), typically ex-
+captures this high-speed stream for a training batch (e.g.,              hibiting high memory bandwidth requirements.
+3000 time steps) presents a significant engineering hurdle.            • Matrix-Vector Multiplication (GEMV): The product Ax
+To solve this, FALCON features the Hawkeye Detector Unit                 of matrix A ∈ RM ×D and vector x ∈ RD requires
+(HDU), which employs a specialized frame header alignment                O(M D) operations. Due to limited reuse of the input
+mechanism. This mechanism locks onto the precise start of the            vector x, GEMV is generally memory-bound.
+serialized signal, ensuring that every optical feature is accu-        • Matrix-Matrix Multiplication (GEMM): The product AB
+rately digitized and mapped before entering the computational            of matrices A ∈ RM ×K and B ∈ RK×D requires
+core. By exploiting the fixed data flow pattern of the ridge             O(M KD) operations[15]. GEMM offers high data reuse,
+                                                                                                                                    3
+
+
+
+                                                             TABLE I
+                                C OMPUTATIONAL AND S TORAGE C OMPLEXITY OF K EY M ATRIX O PERATIONS .
+
+ Operation                                Inputs                    Output          Time Complexity          Storage Complexity
+ Vector Scale-Add (AXPY)                x, y ∈ RD                    RD                  O(D)                       O(D)
+ Matrix-Vector Mul (GEMV)          A ∈ RN ×D , x ∈ RD                RN                 O(N D)                     O(N D)
+ Matrix-Matrix Mul (GEMM)         A ∈ RN ×D , B ∈ RD×D              RN ×D               O(N D2 )                 O(N D + D2 )
+ Matrix Inversion                      A ∈ RD×D                     RD×D                 O(D3 )                     O(D2 )
+
+
+
+     making it a key candidate for pipelining and acceleration        We represent a real-valued scalar x using a signed fixed-
+     via Systolic Arrays[22].                                       point format with word length W and fractional bits F . The
+                                                  D×D
+  • Matrix Inversion: Inverting a matrix A ∈ R         , often      quantized value can be modeled as
+     implemented via methods like Cholesky decomposition,                                                         
+                                                                                                    round(x · 2F )
+     incurs a cubic computational complexity of O(D3 )[15].                      x̃ = Q(x) = clip                            (2)
+     Crucially, it requires O(D2 ) storage to hold the inter-                                            2F
+     mediate matrix structure, representing a primary memory        where clip(·) denotes saturation to the representable range.
+     bottleneck for high-dimensional problems.                      In MIRS, the dominant operations are dot-products and re-
+  A summary of the complexity for these primitives is pro-          ductions (e.g., XB w and XTB e). These operations amplify
+vided in Table I.                                                   dynamic range because they sum multiple products.
+                                                                    PFor   illustration, consider a length-D dot product s =
+                                                                      D                       Ix −1
+B. Linear Regression and Computational Bottlenecks                    i=1 xi wi . If |xi | ≤ 2      and |wi | ≤ 2Iw −1 in integer-bit
+   Linear regression models the relationship between a depen-       notation, then a conservative bound is
+dent variable y and a feature vector x ∈ RD . The model can                               |s| ≤ D · 2Ix +Iw −2                    (3)
+be expressed in matrix notation as y = Xw + b1 + ϵ, or
+equivalently y = X̃w̃ + ϵ with X̃ = [X 1] and w̃ = [w; b].          which implies the accumulator integer bits should satisfy
+   The Ordinary Least Squares (OLS) method obtains the
+                                                                                      Iacc ≳ Ix + Iw + ⌈log2 D⌉                   (4)
+closed-form solution by solving the normal equations:
+                    ˆ OLS = (X̃T X̃)−1 X̃T y                           In practice, additional guard bits are typically required to
+                    w̃                                       (1)
+                                                                    accommodate mini-batch reductions and intermediate gradient
+While this analytical solution possesses desirable statistical      terms. Therefore, selecting Win (input width) and Wacc (ac-
+properties, it introduces two critical computational bottlenecks    cumulator width) is a hardware–algorithm co-design decision:
+for hardware implementation:                                        overly low precision leads to quantization-dominated error
+   1) Computational Complexity: Solving the normal equa-            floors, while overly high precision wastes DSP, BRAM, and
+      tions involves computing the augmented Gram matrix            routing resources.
+      G̃ = X̃T X̃ (O(N D2 ) operations) and its subsequent
+      inversion (O(D3 ) operations).                                 III. P ROPOSED M OMENTUM -I TERATIVE R IDGE S OLVER
+   2) Memory Wall: The explicit construction of G demands
+                                                                       To address the “speed mismatch” challenge in the readout
+      O(D2 ) contiguous memory. For high dimensions (large
+                                                                    layer of Photonic Reservoir Computing (PRC), this paper
+      D), this memory requirement often exceeds on-chip
+                                                                    proposes a hardware-efficient numerical scheme named the
+      Static Random-Access Memory (SRAM) capacity, lead-
+                                                                    Momentum-Iterative Ridge Solver (MIRS). Unlike traditional
+      ing to reliance on slow off-chip memory access.
+                                                                    analytical methods that rely on computationally expensive
+These limitations highlight a fundamental misalignment be-          matrix inversion, MIRS reformulates the optimization problem
+tween classical analytical methods and the constraints of edge      as a streaming iterative process using momentum gradient
+hardware. They justify the necessity of a paradigm shift to-        descent. This paradigm shift not only circumvents intensive
+wards iterative numerical solvers, which, while mathematically      matrix operations but also removes the O(D2 ) Gram-matrix
+simpler, avoid the prohibitively expensive matrix inversion and     state, leaving only O(D) solver state (weights and momen-
+memory-intense Gram-matrix construction, thereby unlocking          tum), thereby enabling ultra-low latency adaptive training on
+the potential for real-time adaptation.                             resource-constrained edge hardware.
+                                                                          a) Positioning and scope.: MIRS is a hardware-oriented
+C. Fixed-Point Arithmetic: Quantization and Overflow                instantiation of mini-batch SGD with momentum for ridge
+   FALCON targets FPGA deployment, where fixed-point                regression. We do not claim a new optimization algorithm;
+arithmetic is preferred for achieving high throughput and en-       rather, the contribution is a streaming, fixed-point, constant-
+ergy efficiency. However, replacing floating-point with fixed-      state formulation that matches the timing and resource con-
+point introduces two practical numerical issues: (i) quantiza-      straints of the photonic front-end and the FPGA datapath.
+tion error due to finite word length, and (ii) overflow/underflow   The design choices below are therefore driven by hardware
+due to limited accumulator range.                                   feasibility rather than theoretical novelty.
+                                                                                                                                  4
+
+
+
+A. Problem Formulation and Computational Bottlenecks             signals output by the photonic front-end are inevitably con-
+   In the readout phase of photonic computing, Ordinary          taminated by thermal noise, shot noise, and ADC quantization
+Least Squares (OLS) estimates often exhibit instability due      errors. In such a high-noise environment, standard SGD often
+to the inherent noise of analog optical signals and potential    exhibits severe stochastic oscillation around the optimum,
+multicollinearity among independent variables. Specifically,     leading to slow and unstable convergence. To address this,
+when the design matrix XT X approaches singularity, OLS          MIRS integrates a momentum mechanism by introducing
+estimates suffer from excessive variance. To enhance numeri-     velocity variables vw and vb to smooth the optimization
+cal robustness, we adopt Ridge Regression, which constrains      trajectory.
+the solution space by introducing an L2 regularization term         The core concept of the momentum mechanism is to update
+while explicitly modeling the bias (unregularized):              parameters using an exponentially weighted moving average
+                                                                 of historical gradients. This strategy offers a dual advantage
+ min J (w, b) = (y −Xw−b1)T (y −Xw−b1)+λwT w (5)                 in hardware implementation: First, it acts as a temporal low-
+ w, b
+                                                                 pass filter, effectively suppressing the stochastic fluctuations
+where λ ≥ 0 is the regularization hyperparameter controlling     (high-frequency noise) of instantaneous gradients, thereby
+the penalty strength. Theoretically, the optimal weights and     enhancing the algorithm’s robustness against optoelectronic
+bias can be derived by setting the gradients of the objective    noise. Second, it allows the solver to accumulate “inertia” in
+function with respect to w and b to zero:                        dimensions where the gradient direction is consistent, accel-
+       ∂J (w, b)                                                 erating transit through flat or pathologically curved regions of
+                  = −2XT (y − Xw − b1) + 2λw = 0         (6)
+          ∂w                                                     the optimization landscape. The momentum updates for w and
+       ∂J (w, b)                                                 b are:
+                  = −21T (y − Xw − b1) = 0               (7)
+           ∂b                                                                 vw,t = αvw,t−1 + η∇w J (wt−1 , bt−1 )          (11)
+This leads to the well-known closed-form estimator (also
+referred to as the analytical solution). By augmenting X̃ =                                        ∂J (wt−1 , bt−1 )
+                                                                              vb,t = αvb,t−1 + η                              (12)
+[X 1], w̃ = [w; b], and Λ̃ = diag(λI, 0), we obtain:                                                     ∂b
+                  ˆ = (X̃T X̃ + Λ̃)−1 X̃T y
+                  w̃                                       (8)               wt = wt−1 − vw,t ,      bt = bt−1 − vb,t         (13)
+Although Eq. (8) is mathematically elegant, its direct imple-
+                                                                     where η is the learning rate, and α ∈ [0, 1) is the momentum
+mentation on edge hardware encounters severe computational
+                                                                 coefficient. This mechanism is pivotal in hardware-algorithm
+and memory bottlenecks. First, constructing the augmented
+                                                                 co-design: the momentum term acts as a temporal low-pass
+Gram matrix G̃ = X̃T X̃ requires O(N D2 ) operations, and
+                                                                 filter, effectively smoothing out stochastic noise and quantiza-
+the subsequent matrix inversion scales with O(D3 ) (dimen-
+                                                                 tion errors. It allows the solver to build inertia (accelerate) in
+sion D+1, same asymptotic order). This cubic computational
+                                                                 directions of consistent gradients while dampening oscillations
+complexity induces millisecond-level latency on FPGAs, far
+                                                                 in directions of high variance.
+exceeding the nanosecond timescale of optical inference.
+                                                                     The detailed execution flow of MIRS is formalized in
+Second, explicitly storing the Gram matrix demands O(D2 )
+                                                                 Algorithm 1. Here, we adopt a Mini-Batch Gradient Descent
+contiguous memory. As the feature dimension D increases,
+                                                                 (MBGD) strategy. This choice represents a critical trade-off
+this requirement rapidly exceeds on-chip BRAM capacity,
+                                                                 between hardware throughput and gradient estimation quality:
+forcing reliance on high-latency off-chip DRAM and hitting
+                                                                 while mini-batching introduces stochastic noise, it enables
+the “Memory Wall.” Consequently, to achieve real-time adap-
+                                                                 highly parallelized pipeline processing. Crucially, the afore-
+tation, the analytical approach must be abandoned in favor of
+                                                                 mentioned momentum term effectively smooths this stochas-
+a hardware-friendly numerical iterative method.
+                                                                 ticity, ensuring convergence stability even under high-speed
+                                                                 updates.
+B. Proposed Algorithm: Momentum-Iterative Ridge Solver                  a) Update granularity and time scale.: A weight update
+   To fundamentally circumvent the computational barriers of     is performed per mini-batch of B feature vectors, not per raw
+the analytical solution, MIRS abandons the expensive matrix      ADC sample. Each feature vector is reconstructed from D
+inversion in favor of a gradient-based iterative optimization    time-multiplexed ADC samples; thus one update consumes
+paradigm. This approach operates directly on streaming data      B × D ADC samples. For the default D = 80, B = 64,
+to asymptotically approach the optimal solution of Ridge         and 10.4 GSPS ADC rate, this corresponds to about 0.49 µs
+Regression. For the objective function J (w, b) defined in Eq.   of input time. The core-side budget is B cycles at 150 MHz,
+(5), the gradients with respect to w and b are:                  i.e., about 0.43 µs. Hence the update cadence is sub-µs, distinct
+                                                                 from the nanosecond-scale sampling alignment provided by
+        ∇w J (w, b) = 2XT (Xw + b1 − y) + 2λw              (9)
+                                                                 the HDU.
+               ∂J (w, b)                                                b) Hardware-driven deviations from generic MBGD.:
+                          = 21T (Xw + b1 − y)           (10)
+                   ∂b                                            Compared to a generic MBGD solver, MIRS enforces several
+  While standard Stochastic Gradient Descent (SGD) is the-       constraints that are essential for a fully streaming FPGA
+oretically viable, it faces unique physical challenges when      datapath: (1) Constant state: beyond the feature/label buffers,
+applied to Photonic Reservoir Computing (PRC). The analog        only O(D) parameter and momentum state are maintained
+                                                                                                                                    5
+
+
+
+ Algorithm 1: Momentum-Iterative Ridge Solver.                      feature extraction; and (3) the FALCON-Core for executing
+  Input: Mini-batch stream (XB , yB ), Learning rate η,             MIRS.
+         Momentum coefficient α, Regularization                        DTF (Host interface and memory fabric). The DTF is
+         parameter λ, Batch size B, Max iterations Tmax             responsible for sustaining the end-to-end throughput between
+  Output: Optimized weight vector w ∈ RD , Bias                     the host and on-chip compute. It consists of the PCIe endpoint
+           scalar b                                                 and Direct Memory Access (DMA) engine, the Advanced
+                                                                    eXtensible Interface (AXI) interconnect, and the external
+  w(0) ← 0, b(0) ← 0                                                memory subsystem (Double Data Rate 4 (DDR4) controller).
+  vw ← 0, vb ← 0                                                    Through the DTF, the host streams training features/labels and
+  for t ← 1 to Tmax do                                              reads back inference results, while also configuring runtime
+      (XB , yB ) of size B                                          registers (e.g., thresholds, window parameters, and solver
+      ŷB ← XB w(t−1) + b(t−1)                                      hyperparameters).
+      eB ← ŷB − yB                                                    HDU (Front-end timing and feature pipeline). The HDU
+      gw ← B2 XTB eB + 2λw(t−1)                                     receives the digitized analog stream from the ADC via the
+               PB
+      gb ← B2 k=1 (eB )k                                            JESD interface/decoder (10.4 GSPS in our system). In our
+      vw ← αvw + ηgw                                                system, the upstream photonic front-end time-multiplexes the
+      vb ← αvb + ηgb                                                80-dimensional outputs produced at the same instant into a
+      w(t) ← w(t−1) − vw                                            single serial optical waveform; a high-speed photodiode (PD)
+      b(t) ← b(t−1) − vb                                            then performs optical-to-electrical conversion to produce a
+  end                                                               channel-scanned serial analog stream, which is sampled and
+  return w(Tmax ) , b(Tmax )                                        digitized by the ADC. The HDU detects a frame header and
+                                                                    locks alignment: the header establishes the phase relationship
+                                                                    between the serialized stream and the ADC sampling instants,
+on-chip, eliminating explicit Gram-matrix storage; (2) De-          ensuring that each ADC sample maps to the correct feature
+terministic update schedule: updates are aligned to fixed-          position. Notably, to minimize nondeterministic host timing,
+size streaming windows to bound latency; (3) Shift-friendly         the sampling procedure is initiated by an on-chip finite state
+momentum: α is chosen from power-of-two fractions to avoid          machine (FSM) through GPIO control of the ADC (“GPIO:
+multipliers and enable a pure shift-add implementation; (4)         Start Sampling” in Fig. 2), enabling repeatable end-to-end
+Quantization-aware scaling: gradients and bias handling are         alignment.
+structured to preserve numerical stability under fixed-point           FALCON-Core (Fixed-point MIRS datapath). The core con-
+arithmetic. These constraints make MIRS practical for real-         tains on-chip parameter/feature banks and a fully pipelined
+time deployment while preserving the ridge objective.               forward–backward datapath. It consumes aligned features from
+   Compared to the analytical solution, MIRS achieves a             the HDU, performs MIRS updates in fixed point, and supports
+fundamental reduction in complexity. It eliminates the need         both online training and low-latency inference.
+to construct or store the Gram matrix, removing the O(D2 )             Finally, the design adopts a dual-clock organization as illus-
+additional state; the solver state consists only of w, vw , b,      trated in Fig. 2. The front-end stream path (including the JESD
+and vb and is O(D). The N × D feature buffer and N -                receiver/decoder and the subsequent alignment/reshape logic
+label buffer are still required by the streaming pipeline, but no   that consumes the high-rate ADC output stream) resides in a
+quadratic Gram state is materialized. This design substantially     higher-frequency domain (250 MHz) to sustain the I/O-driven
+reduces on-chip storage pressure and off-chip memory traffic,       cadence. In contrast, the solver core operates at 150 MHz
+enabling microsecond-level updates and narrowing the gap            under a deterministic dataflow schedule. The clock-domain
+with nanosecond-level optical inference.                            boundary is bridged by dedicated buffering (asynchronous
+                                                                    First-In First-Out (FIFO)/Clock Domain Crossing (CDC)) so
+       IV. H ARDWARE A RCHITECTURE OF FALCON                        that bursty I/O timing is decoupled from steady-state compute.
+A. Architecture Overview
+   Figure 2 presents an overview of the heterogeneous hard-         B. Hawkeye Detector Unit (HDU)
+ware architecture of FALCON. Designed as a dedicated copro-            To address the intrinsic instability of photonic signals,
+cessor, FALCON bridges the frequency gap between the high-          we propose the Hawkeye Detector Unit (HDU), a hardware
+speed photonic reservoir and the electronic readout layer. The      front-end that provides nanosecond-scale sampling alignment.
+system integrates with the host via a Peripheral Component          Unlike a naive threshold trigger, the HDU is designed as a
+Interconnect Express (PCIe) Gen3 x8 interface, following a          streaming pipeline that performs synchronization and feature
+Host–Target communication paradigm.                                 extraction in a fully hardware-timed manner.
+   At the top level, FALCON is organized into three sub-               As shown in Fig. 2, the HDU begins with the JESD
+systems that map directly to the blocks in Fig. 2: (1) the          interface/decoder that converts the ADC output into an internal
+Data Transport Fabric (DTF) for host/FPGA data movement             streaming format. The resulting stream is then passed to a
+and memory-mapped control; (2) the Hawkeye Detector Unit            Data Reshape stage which, based on the phase locked by
+(HDU) for front-end stream conditioning, synchronization, and       the frame header, reconstructs 80-dimensional feature vectors
+                                                                                                                                                            6
+
+
+
+
+                                                                                                                                                  150 MHz
+     Analog Input                      250 MHz
+                                                                    Data Reshape                                     Feature Detector
+                                                                                                                                         3000      999
+                                                                                                                                         cycles    cycles
+                                                                          → 128 data                              80 data
+                        JESD                JESD       512 bits                ···
+                                                                              3 cycles                80 data       ···
+        ADC           Interface           Decoder                                             .                                   ..
+                                                                                12 bits/data ..                                    .
+
+                                                                           FIFO                                   Frame Header Detect!   Train Test
+
+                                                                                                      HDU
+             Start Sampling                 DTF
+                                                                                                  x
+                                            FSM                                              1 × 80
+                                                                          FB                                    SVP
+                                                                          3000 × 80
+                                                                          X                 X
+                                                                                          64 × 80
+                                                                                                         ×              +
+                                                                                                        w
+                                                                      SWR                                              b               IMU
+                             PCIe            AXI                  w, vw        b, vb                                              v
+                                                                                            Update w, vw , b, vb
+                                          Interface
+          PC                                                          GTB
+                                                                                                                                         ∇
+                                                                           3000 × 1                         y                             ŷ
+                                                                          y                                                      L2
+                                                                                                         64 × 1                          64 × 1
+                                                                                                                           ŷ
+                                                                                                                       1×1
+
+                                                                                         FALCON-CORE
+                                           DDR4
+                                                                                                         XCKU115-FLVA1517
+Fig. 2. Architecture of FALCON’s Heterogeneous Hardware.
+
+
+
+from the time-multiplexed, photodetected stream (i.e., every          C. FALCON-Core
+80 consecutive ADC samples correspond to one 80-D output).
+A Feature Detector stage then monitors the reconstructed                 The FALCON-Core is engineered to execute MIRS with
+features and generates real-time event/saturation indications         minimal latency. It adopts a dataflow microarchitecture that ex-
+using dynamically configurable thresholds.                            ploits the inherent parallelism of the readout update and avoids
+                                                                      the control overhead of instruction-driven processors. As illus-
+                                                                      trated in Fig. 2, the core comprises two tightly coupled parts:
+                                                                      (i) an on-chip storage hierarchy for features/labels/parameters
+   The HDU’s key component is the Temporal Alignment En-              and (ii) a pipelined forward-backward compute datapath.
+gine, implemented as a FSM that identifies frame boundaries              1) Hierarchical Parameter Retention Array (HPRA): To
+and computes the precise Region of Interest (ROI) start index         mitigate the von Neumann bottleneck, the HPRA constructs
+τstart . In our implementation, the frame header is detected          a domain-specific storage hierarchy using on-chip UltraRAM
+by a deterministic level sequence: the ADC first observes a           (URAM)/BRAM resources and external DDR4 when neces-
+sustained All-High state and then transitions to a sustained All-     sary. It is partitioned into three dedicated banks: (1) The
+Low state. Upon detecting this high-to-low transition, the FSM        Feature Bank (FB), configured in a double-buffer mode to
+waits for a programmable offset ∆t to ensure alignment and            enable overlapping of computation and I/O; (2) The Ground-
+settling, and then opens a deterministic acquisition window.          Truth Buffer (GTB), storing target labels; and (3) The Synap-
+This window captures a contiguous 80 × 3999 block of scalar           tic Weight Register (SWR), which maintains not only the
+ADC samples from the serialized stream, which corresponds             weights w and bias b but also the corresponding high-precision
+to 3999 consecutive 80-D feature vectors after reshaping; the         momentum accumulators vw and vb . The FB/GTB retain
+first 3000 vectors are used for training and the remaining 999        the N × D feature window and N labels required by the
+vectors are used for inference. The valid feature vectors are         streaming update. Importantly, no explicit D ×D Gram matrix
+pushed into a FIFO buffer, which (i) isolates the I/O-driven          is materialized, so the solver state remains O(D).
+timing from the compute schedule and (ii) provides a clean,              2) Mixed-Precision Datapath Optimization: To achieve an
+aligned feature stream to the downstream FALCON-Core.                 optimal balance between hardware resource efficiency and al-
+                                                                                                                                              7
+
+
+
+                                                                                 3) MIRS Arithmetic Pipeline (MAP): The MAP is a deeply
+                                                                               pipelined datapath corresponding to the Forward and Back-
+                                                                               ward blocks in Fig. 2. The Forward block implements the
+                                                                               Synaptic Vector Processor (SVP), where a parallel multiply-
+                                                                               accumulate tree computes the prediction ŷ = wT x + b.
+         (a) Input bit-width                (b) Accumulator bit-width          The Backward block implements the Gradient Descent Unit
+Fig. 3. Design rationale for quantization bit-width. (a) NMSE as a function    (GDU), which computes the residual and gradients while
+of input bit-width. The performance stabilizes after 12-bit, indicating that   incorporating the L2 regularization term.
+quantization noise has fallen below the optical noise floor. (b) NMSE versus
+accumulator bit-width. A minimum of 25-bit is required to prevent gradient       The final stage is the Inertia-Modulated Updater (IMU).
+underflow and ensure convergence comparable to the floating-point reference.   The IMU implements the key innovation of MIRS: momentum
+                                                                               acceleration. Instead of applying gradients directly, it updates
+                                                                               the velocity terms based on the momentum coefficient α, as
+gorithmic convergence accuracy, we employ a mixed-precision                    described in Eq. (11), and commits the final parameter update
+strategy in the datapath design. This strategy is not arbitrary                back to the Weight Bank. By cascading the forward path,
+but driven by exhaustive sensitivity analysis.                                 backward path, and the IMU into a tightly coupled pipeline,
+   Input Quantization (12-bit): We fix the bit-width of the                    the core sustains a throughput of one iteration per clock cycle
+normalized input feature matrix X at 12-bit. As substantiated                  once the pipeline is filled, enabling ultra-low-latency online
+by the sweep analysis in Fig. 3 (a) (ranging from 4-bit to                     adaptation.
+18-bit), the NMSE increases exponentially when the bit-width
+drops below 8-bit. This degradation is attributed to excessive                               V. E XPERIMENTS AND R ESULTS
+quantization noise obliterating the fine-grained temporal struc-               A. Experimental Setup
+tures inherent in the chaotic time series, leading to severe                      To comprehensively evaluate the performance of FALCON,
+model underfitting.                                                            we prototyped the system on the commercial QT7012-L FPGA
+   As the bit-width increases to 10-bit, the error curve drops                 platform [23] featuring a Xilinx Kintex UltraScale XCKU115-
+sharply and plateaus, suggesting that the quantization noise                   FLVA1517 device [24], as illustrated in Fig. 4. The integrated
+has effectively fallen below the intrinsic physical noise floor                figure aligns the physical setup with the functional dataflow
+of the optical link. Although increasing precision to 14-bit or                of the system: the host PC communicates with both the
+18-bit offers negligible NMSE improvement (< 0.01%), 12-bit                    FPGA board and the input driver board over PCIe, the analog
+is selected as the optimal operating point.                                    reservoir output from the photodetector is digitized by a
+   This decision is underpinned by three factors: (1) Native                   QT7125-FMC [25] ADC daughter card, and the FPGA board
+Resolution Matching: The front-end ADC natively outputs                        executes the FALCON online-training pipeline. The hardware
+12-bit samples; maintaining this width avoids truncation or                    logic was described using SpinalHDL and synthesized into
+padding overheads. (2) Safety Margin: Compared to a minimal                    Verilog, operating at a clock frequency of 150 MHz to main-
+10-bit setting, the extra 2-bit precision provides a guard band                tain synchronization with the front-end ADC sampling rate.
+to accommodate outliers and dynamic range fluctuations in                      The host environment consists of a workstation equipped with
+unstable optical environments. (3) Hardware Efficiency: The                    an Intel Core i7-13700KF processor, 32 GB RAM, and an
+multipliers in Xilinx UltraScale DSP48 slices natively support                 NVIDIA RTX 4090 GPU. Fig. 4 also shows the host control
+up to 27×18 bit operands. Consequently, maintaining a 12-bit                   application used to manage FPGA connectivity, trigger online
+input incurs no additional DSP resource overhead, maximizing                   training, and visualize prediction waveforms and NMSE con-
+numerical fidelity with zero hardware penalty.                                 vergence in real time. To contextualize both edge and desktop
+   Accumulator Precision (25-bit): Conversely, for parameter                   software performance, we report four software baselines for
+updates during gradient descent, the accumulator bit-width                     comparative analysis:
+dictates the dynamic range and training stability. As illus-                      • Embedded CPU: The onboard 6-core Carmel ARM v8.2
+trated in Fig. 3 (b), the model fails to converge when the                           CPU of the Jetson Xavier NX, executing a C++ im-
+accumulator width is below 17-bit. This failure is attributed to                     plementation of the algorithm (using the Eigen library)
+severe numerical underflow, where small but critical gradient                        without GPU acceleration.
+updates fall below the minimum representable precision and                        • Edge GPU: The onboard 384-core Volta GPU of the same
+are effectively truncated to zero.                                                   Jetson Xavier NX platform, accelerating the workload
+   The model begins to stabilize as the width reaches 21-                            using the Compute Unified Device Architecture (CUDA)
+bit. Beyond 25-bit, FALCON’s accuracy shows no further                               framework (cuSolver).
+improvement, indicating a point of diminishing returns. Al-                       • Desktop CPU: The Intel Core i7-13700KF of the work-
+
+though 33-bit precision offers a higher theoretical dynamic                          station host, executing the Eigen-based C++ baseline.
+range, the marginal accuracy gain is insufficient to offset the                   • Desktop GPU: The NVIDIA RTX 4090 GPU of the
+
+increased resource consumption. Therefore, we configure the                          workstation host, executing the CUDA baseline.
+accumulator at 25-bit, which prevents the “vanishing gradient”                 We evaluate FALCON on two datasets: a synthetic Mackey-
+problem and ensures convergence performance comparable to                      Glass (MG) benchmark and a real-world AWG dataset. Unless
+floating-point baselines.                                                      otherwise specified, we follow a standard chaotic time-series
+                                                                                                                                                          8
+
+
+
+
+                                                                                                       PCIe
+                                FALCON                FPGA Board                  ADC
+
+
+
+
+      Optical
+                                                                                                                  PC
+     Devices
+
+
+
+
+                                                                                                       PCIe
+                                                  Input Driver Board
+
+
+
+
+Fig. 4. Experimental setup of the FALCON system, combining annotated photographs of the hardware platform and the host control interface with their
+functional correspondence. The figure highlights the FPGA board running FALCON, the ADC card, the input driver board, the optical front-end, and the host
+PC connected through PCIe.
+
+
+
+prediction setting (e.g., the Santa Fe laser task [12]) with a                                           TABLE II
+reservoir feature dimension of D = 80, an online training                      FPGA R ESOURCE U TILIZATION ON K INTEX U LTRA S CALE XCKU115.
+window of N = 3000 samples, and a batch size of 64.                             Module                        LUTs      Registers     BRAMs       DSPs
+All hardware operations are implemented using fixed-point
+                                                                                HDU (Hawkeye)                 34 274      66 545       117.5         0
+arithmetic to optimize resource utilization.
+                                                                                FALCON-Core                   51 085      36 450        84.0       401
+   Unless otherwise specified, we report results using a default
+                                                                                DTF (PCIe/DMA)                81 026     112 112       135.0         6
+configuration (including fixed-point formats and optimizer
+hyperparameters) that is compatible with the on-chip buffering                  Other/Infrastructure           6150       10 829        20.0         0
+and datapath constraints of the FPGA implementation. In                         Total                         172 535    225 936       356.5       407
+addition to the end-to-end latency/energy measurements, we                      Percentage                    26.01%     17.03%       16.50%      7.37%
+further conduct controlled ablation studies by varying one
+factor at a time (bit-width, learning rate/momentum, and batch
+size) while keeping all other settings unchanged.                             leaves ample room for scaling to support higher-dimensional
+                                                                              photonic reservoirs (e.g., D > 128). Notably, the HDU mod-
+                                                                              ule consumes minimal resources, validating the lightweight
+B. Resource Utilization                                                       advantage of our signal synchronization design.
+  Table II summarizes the resource utilization of FALCON
+on the Kintex UltraScale XCKU115 platform. Even with 80
+                                                                              C. Latency and Throughput Analysis
+parallel computing lanes integrated, our design occupies only
+                                                                                 Note: power scopes differ across platforms (system/package/GPU-
+26.01% of Look-Up Tables (LUTs) and 7.37% of DSP slices.                      only/Vivado estimate), so energy efficiency comparisons are indicative rather
+This indicates that FALCON is highly hardware-efficient and                   than strictly apples-to-apples.
+                                                                                                                                              9
+
+
+
+                                                               TABLE III
+                                   C OMPARISON OF E DGE /D ESKTOP S OFTWARE BASELINES AND FALCON.
+
+ Metric                   Embedded CPU            Edge GPU             Desktop CPU               Desktop GPU            FALCON (Ours)
+                         (Jetson Xavier NX)    (Jetson Xavier NX)    (Intel i7-13700KF)           (RTX 4090)           (Kintex UltraScale
+                                                                                                                             FPGA)
+ Processing Unit            Carmel CPU             Volta GPU            i7-13700KF                 RTX 4090                XCKU115
+ Algorithm /            Closed-Form (Eigen)       Closed-Form       Closed-Form (Eigen)      Closed-Form (CUDA)         MIRS (Iterative)
+ Framework                                         (cuSolver)
+ Latency (µs,                 4377.4                2357.7                964.289                   316.717                  20.013
+ N = 3000)
+ Throughput                 6.85 × 105            1.27 × 106            3.11 × 106                9.47 × 106              1.50 × 108
+ (Samples/s)
+ Power scope               Jetson system         Jetson system         CPU package                 GPU-only                Vivado est.
+ (accounting)
+ Power (W)                     5.64                  9.63                    39.8                   85.996                   0.724
+ Energy Efficiency          1.22 × 105            1.32 × 105            7.82 × 104                1.10 × 105              2.07 × 108
+ (Samples/J)
+ Measured speedup vs.          1.0×                 1.86×                    4.54×                  13.82×                  218.7×
+ Jetson CPU
+ Estimated efficiency          1.0×                 1.09×                    0.64×                   0.91×                   1704×
+ gain vs. Jetson CPU
+
+
+
+   Table III reports end-to-end latency, throughput, and energy                              TABLE IV
+efficiency across platforms. FALCON completes one N =                  C ONTEXTUAL COMPARISON WITH PRIOR FPGA ONLINE - TRAINING
+                                                                                              SYSTEMS .
+3000-sample online update in 20.013 µs and achieves the best
+energy efficiency under the reported power accounting. For          Metric                Ikeda et al. (TCAD’25)   FALCON (This work)
+power reporting, Jetson entries use system power, desktop                                 [20]
+entries use CPU package or GPU-only power, and the FPGA             Task/setting          DFR (edge classification) PRC (readout adaptation)
+power is a Vivado post-implementation estimate; therefore,          Online-trained        Reservoir + readout      Readout only
+cross-platform energy comparisons should be interpreted as          params
+indicative rather than strictly comparable.                         Readout solver        1-D Cholesky ridge       MIRS ridge (iterative)
+                                                                                          (direct)
+   1) Context with Prior FPGA Online Training Systems:
+                                                                    Key focus             Fast param tuning;       µs updates; stream sync
+Ikeda et al. demonstrated an online training and inference sys-                           low-mem ridge            (HDU)
+tem for delayed-feedback reservoir computing on edge FPGA,          Implementation        Vitis HLS, Zynq-7000 @ Streaming dataflow,
+combining truncated backpropagation for reservoir parameter                               100 MHz                XCKU115 @ 150 MHz
+optimization and an in-place Cholesky-based ridge solver for        Time reported         0.42 s (0.32 s+0.10 s)   20.013 µs/window
+the output layer [20]. Table IV contrasts their design point                                                       (N = 3000)
+with FALCON; reported runtime/power numbers are provided            Power reported      0.734 W (est.)            0.724 W (Vivado est.)
+for context only due to different workloads and measurement         Note: Workloads and measurement scopes differ, so values are contextual
+scopes.                                                                                rather than directly comparable.
+
+   2) Feasibility of Closed-Form Solvers on FPGA: Closed-
+form ridge regression requires forming the Gram matrix
+G = XT X and solving (G + λI)w = XT y via a direct                  linear O(D) state.
+method (e.g., Cholesky/QR/Gauss–Jordan) [15]. In our fully             Relaxing the fully streaming constraint does make a
+streaming setting (one sample per cycle), the update must           buffered closed-form alternative possible in principle: one
+complete within the same N -cycle window; Table V quantifies        could first store the full N × D window and then form/solve
+the optimistic compute/parallelism required for this design         the normal equations after the window ends. This alleviates
+point.                                                              the requirement to finish accumulation and solve within the
+   As shown in Table V, a fully streaming closed-form ridge         same window. However, it introduces additional post-window
+update demands sustaining thousands of MACs per cycle and           latency and shifts the system away from synchronous online
+thousands of accumulators, with quadratic scaling in D. This is     adaptation. It also retains the quadratic-state Gram accumu-
+both compute- and routing-intensive and leaves limited head-        lation and the direct-solve hardware cost. We therefore view
+room for the direct factorization/solve stage and other real-time   such buffered direct methods as feasible, but still mismatched
+system functions. Therefore, although closed-form solvers           to the low-latency streaming objective of this work.
+are feasible on FPGAs when additional latency/buffering is             Direct-solve kernels themselves can be nontrivial on FPGAs
+acceptable, they are a poor fit for our edge-oriented, fully        [26], [27]. However, these works report kernel-only inversion
+streaming design point, motivating our iterative approach with      results, whereas FALCON reports an end-to-end online ridge-
+                                                                                                                                                               10
+
+
+
+                          TABLE V                                                                          TABLE VI
+W ORKLOAD AND OPTIMISTIC PARALLELISM REQUIREMENT FOR A FULLY                        W ORKLOAD CONTEXT FOR REPRESENTATIVE FPGA DIRECT- SOLVER
+   STREAMING CLOSED - FORM RIDGE UPDATE (N = 3000, D = 80,                                                  WORKS .
+                          150 MHz).
+                                                                                  Metric            TCAS-II’21 [26]         TIE’21 [27]       FALCON (This
+ Metric                                                                Value                                                                     work)
+ Unique Gram entries D(D + 1)/2                                        3240       Scope∗               Kernel-only          Kernel-only          End-to-end
+                                                                                                                                                  training
+ MACs for G = XT X (upper                      3000 × 3240 = 9.72 × 106
+ triangle)                                                                        Reported unit        One kernel           One kernel          One window§
+ MACs for XT y                                    3000 × 80 = 2.40 × 105          Workload                8×8             72 × 72 matrix         N = 3000,
+                                                                                                     upper-triangular       inversion‡            D = 80
+ Cycles per N -sample window at                                        3000                             inversion
+ 150 MHz
+                                                                                  Input stream              —                    —             3000 vectors ×
+ Required MACs/cycle for G                       9.72 × 106 /3000 = 3240                                                                         80 features
+ (idealized)
+                                                                                  Pre-solve                 No                   No           Yes (closed-form)
+ Required MACs/cycle total (G +                  9.96 × 106 /3000 = 3320          accumulation
+ XT y)
+                                                                                  Method            Adjoint/diagonal-       LDL-based          MIRS (iterative)
+ DSP48E2 slices in XCKU115                                             5520                               wise
+ Ideal DSP fraction for G                             3240/5520 ≈ 58.7%           Format                  FP32                 FP32              Fixed-point
+ accumulation                                                                                                                                     (12/25b)
+ DSP slices used by                                                      401      FPGA                XC7VX690T            XC7VX690T              XCKU115
+ FALCON-Core (this work)
+                                                                                  Freq.                 300 MHz              250 MHz              150 MHz
+ Total required / FALCON-Core                            3320/401 ≈ 8.3×
+ budget (MACs/cycle)                                                              DSP48                    104                  1839                 401
+ State for G accumulation                                3240 accumulators        Latency               12.07 µs†           2359.39 µs            20.013 µs
+ State for XT y accumulation                                80 accumulators       Note: ∗ Scopes differ, so the table is for workload context only. † Computed
+                                                                                  from 3621 cycles at 300 MHz. ‡ The TIE’21 work reports complex-matrix
+                                                                                     inversion. § For FALCON, one window corresponds to a 3000-cycle
+                                                                                                     streaming pass in the current design.
+
+
+
+
+                                                                                  Fig. 6. Convergence characteristics of numerical solvers on real-world AWG
+Fig. 5. Comparison of accuracy between synthetic and real-world datasets.         data. Training loss and test NMSE variations over 500 training iterations for
+The Mackey-Glass (MG) synthetic benchmark dataset and real-world AWG              the AWG dataset at τ = 19, 20, 21. One iteration corresponds to a mini-batch
+experimental dataset under different delay parameters (τ = 19, 20, 21).           update (B = 64). Dashed lines represent the proposed FALCON fixed-point
+NMSE performance was evaluated across three implementation levels: closed-        hardware (Quantized), solid lines represent the floating-point software baseline
+form matrix inversion (Reference), floating-point iterative solver (Float), and   (Float), and the closed-form solution (Reference) is indicated by the horizontal
+the proposed 12-bit/25-bit fixed-point hardware implementation (Quantized).       dashed line below.
+
+
+update over a streaming window (N = 3000, D = 80). In                                      βx(t−τ )
+                                                                                          1+x(t−τ )n − γx(t). We synthesized chaotic sequences
+a closed-form implementation of our setting, the direct solve                           with varying delay parameters (τ = 19, 20, 21) to
+would be preceded by Gram-matrix and correlation accumu-                                verify the theoretical performance limits in a noise-free
+lation within the same window budget. Table VI therefore                                environment.
+serves only as workload context rather than a like-for-like                          2) Real-world AWG Dataset: This dataset consists of sam-
+performance comparison.                                                                 pled data from a 10 Gbps Arbitrary Waveform Generator
+                                                                                        (AWG) optical link, incorporating real-world factors
+D. Numerical Accuracy and Convergence                                                   such as optoelectronic noise, channel distortion, and
+   To comprehensively validate the algorithmic correctness and                          ADC quantization effects. It is used to assess the sys-
+physical robustness of FALCON, we evaluate its performance                              tem’s robustness in practical, dynamic environments.
+on two distinct types of datasets: For the convergence study,                       Analysis of Results: As shown in Fig. 5, we evaluate
+we fix one N = 3000 training window and repeatedly apply                          the Normalized Mean Squared Error (NMSE) under different
+mini-batch updates (B = 64) to it. Therefore, the reported                        delay parameters τ to validate the accuracy of the algorithm
+iteration count characterizes optimizer behavior on a reused                      and hardware implementation. On the synthetic MG dataset,
+window, rather than a single streaming pass over new samples.                     the closed-form reference solution (Reference) achieves the
+   1) Synthetic Mackey-Glass (MG) Benchmark: This dataset                         lowest NMSE, while the floating-point solver (Float) and
+       is generated by numerically solving the delay differ-                      the proposed FALCON hardware (Quantized) exhibit slightly
+       ential equation (DDE) using Euler’s method: dx   dt =                      higher errors. This minor discrepancy is within expectations,
+                                                                                                                                                     11
+
+
+
+
+Fig. 7. Final NMSE after 500 training iterations across different learning      Fig. 9. Sensitivity analysis on Momentum Factor α. The configuration α =
+rates (η). An optimal balance is achieved at η = 10−2 .                         0.25 achieves the lowest NMSE, outperforming both the baseline (α = 0)
+                                                                                and aggressive momentum settings (α ≥ 0.5).
+
+
+
+                                                                                off between convergence speed and numerical stability. We
+                                                                                evaluated system performance across η ∈ [10−4 , 10−1 ] under
+                                                                                a hard constraint of 500 iterations, which corresponds to the
+                                                                                maximum timing budget allocated by the hardware control
+                                                                                logic. The results are summarized in terms of final accuracy
+                                                                                (Fig. 7) and convergence trajectory (Fig. 8).
+                                                                                   At η = 10−1 , the model exhibits catastrophic divergence. As
+Fig. 8. Convergence trajectories for different learning rates (η). High rates   evident in the convergence plot, the loss value overflows (NaN)
+lead to divergence, while low rates result in sluggish convergence.             within the first few iterations. This is caused by gradient update
+                                                                                steps exceeding the dynamic range of the fixed-point weights,
+                                                                                triggering immediate numerical explosion. Conversely, lower
+as matrix inversion provides a theoretically optimal solution                   learning rates (η ≤ 10−3 ) demonstrate stable but sluggish
+under noise-free conditions; nevertheless, the negligible dif-                  convergence profiles. While mathematically sound, they fail to
+ference between Quantized and Float still indicates that our                    reach the optimal error floor within the predefined hardware
+MIRS implementation is mathematically correct.                                  latency budget (500 iterations). Achieving convergence with
+   On the more challenging real-world AWG datasets, a con-                      these settings would necessitate extending the training duration
+trasting and significant observation emerges: the numerical                     by an order of magnitude, undermining the ultra-low latency
+solvers (Float and Quantized) consistently outperform the Ref-                  objective of FALCON.
+erence solution. This phenomenon suggests that the iterative                       It is worth noting that at η = 10−1 , the quantized model
+MIRS algorithm possesses superior adaptability to the intrinsic                 displays an anomalous “initial overflow followed by recov-
+physical noise and optoelectronic non-idealities present in real                ery” behavior. This does not indicate genuine convergence
+optical links. Most crucially, the fixed-point hardware imple-                  but is an artifact of the saturation clipping effect in fixed-
+mentation of FALCON (Quantized) remains almost perfectly                        point arithmetic. When excessive gradient steps drive weights
+indistinguishable from the floating-point software baseline                     beyond the hardware’s representable range, values are forcibly
+(Float). This overlap proves that our customized 12-bit/25-                     clipped at the boundaries, creating a spurious reduction in
+bit datapath effectively preserves the necessary numerical                      error metrics. However, weight updates under this condition
+precision, incurring negligible quantization degradation even                   have lost physical significance, manifesting as extremely high
+under complex physical interference.                                            irreproducibility and oscillation—a typical unstable regime.
+   Moreover, Fig. 6 shows the convergence trajectories on the
+                                                                                   The default rate of η = 10−2 strikes the optimal balance.
+AWG dataset. The loss descent curves of FALCON’s fixed-
+                                                                                It ensures numerical stability within the fixed-point domain
+point implementation and the floating-point model are almost
+                                                                                while providing sufficiently aggressive gradient updates for
+indistinguishable throughout the training process and achieve
+                                                                                the optimizer to reach a satisfactory error level within approx-
+stable convergence within approximately 200 iterations. This
+                                                                                imately 90 iterations. Here, an iteration denotes one mini-batch
+result not only verifies the robustness of the arithmetic core to
+                                                                                update on a fixed training window and is used to characterize
+noise but also indicates that the quantization method maintains
+                                                                                optimizer convergence; it should not be confused with the
+training process stability while ensuring result accuracy.
+                                                                                hardware execution latency of one complete N = 3000
+                                                                                window update reported in Table III.
+E. Sensitivity Analysis                                                            2) Impact of Momentum Factor: In the MIRS formulation,
+  To identify the optimal trade-off between hardware re-                        the momentum factor α governs the contribution of histor-
+source efficiency and algorithmic convergence accuracy, we                      ical gradients to the current update vector. For brevity, let
+conducted controlled sensitivity experiments on the real-world                  w̃ = [w; b] with momentum ṽ, then ṽt = αṽt−1 + ηg̃t .
+AWG dataset (τ = 19, 20, 21).                                                   To validate the necessity of this inertia term and identify the
+  1) Impact of Learning Rate: As an iterative solver, the                       optimal configuration, we conducted a comprehensive sweep
+choice of learning rate η critically determines the trade-                      of α in the range of [0.0, 0.9].
+                                                                                                                                                    12
+
+
+
+
+Fig. 10. Convergence profiles comparing hardware-friendly momentum        Fig. 12. Convergence profiles comparing different batch sizes: 16, 32, 64,
+factors: α = 0 (Baseline), α = 0.25 (Optimal), and α = 0.5 (Excessive).   96, 128.
+
+
+
+                                                                          pipeline utilization and maximizes throughput while keeping
+                                                                          memory consumption within manageable limits, thus striking
+                                                                          an optimal balance between training latency and resource
+                                                                          constraints.
+
+                                                                                                    VI. C ONCLUSION
+                                                                             This paper addresses the critical “electronic bottleneck”
+                                                                          in Photonic Reservoir Computing, where traditional readout
+Fig. 11. Throughput and convergence speed under different batch sizes.    training fails to match the nanosecond-level optical inference
+                                                                          speed. We demonstrated that for time-critical edge applica-
+                                                                          tions, shifting from widely used analytical solutions to a
+   While conventional software-based deep learning frame-                 streamlined numerical approach is a highly effective innova-
+works often default to α = 0.9, our selection is strictly                 tion. By introducing the Momentum-Iterative Ridge Solver
+governed by hardware efficiency. We restrict our focus to three           (MIRS) to replace computationally expensive matrix inver-
+specific candidates: α = 0.0 (No Momentum), α = 0.25 (Bit-                sions, and implementing FALCON with its precise Hawkeye
+shift >>2), and α = 0.5 (Bit-shift >>1). These coefficients can           Detector Unit, we achieved a system that is both fast and
+be implemented via simple hardwired bit-shifting, completely              robust: the HDU provides nanosecond-scale sampling align-
+eliminating the need for resource-intensive DSP multipliers               ment, while MIRS delivers microsecond-level weight updates.
+required by arbitrary values like 0.9.                                    Experimental evaluations confirm that FALCON achieves
+   When α = 0, as shown in Fig. 10, the algorithm reduces                 20.013 µs training-update latency and 2.072 × 108 Samples/J
+to standard Stochastic Gradient Descent. Lacking momentum                 energy efficiency; under the reported power accounting, the
+accumulation, the model evolves slowly in the search space,               efficiency improvement reaches orders of magnitude. By suc-
+exhibiting the slowest convergence speed. In contrast, moder-             cessfully bridging the frequency gap between optical and elec-
+ate inertia (α = 0.25) effectively accelerates the convergence            tronic domains, FALCON paves the way for the deployment
+process, achieving a lower error bound within the preset                  of real-time, adaptive, and energy-efficient optical computing
+iterations. However, further increasing inertia (e.g., α ≥ 0.5)           systems in edge environments.
+yields no sustained improvement; excessive momentum causes
+more pronounced oscillations around the target, resulting in an
+“overshoot” phenomenon that limits the model’s fine-tuning                                             R EFERENCES
+capability near the optimum. Experimental results indicate that            [1] G. Tanaka, T. Yamane, J. B. Héroux, R. Nakane, N. Kanazawa,
+α = 0.25 achieves the best balance between convergence                         S. Takeda, H. Numata, D. Nakano, and A. Hirose, “Recent advances
+                                                                               in physical reservoir computing: A review,” Neural Networks, vol. 115,
+efficiency and long-term stability.                                            pp. 100–123, Jul. 2019.
+   3) Impact of Batch Size: The batch size B serves as a crit-             [2] B. J. Shastri, A. N. Tait, T. Ferreira De Lima, W. H. P. Pernice,
+ical parameter bridging hardware parallelism and algorithmic                   H. Bhaskaran, C. D. Wright, and P. R. Prucnal, “Photonics for artificial
+                                                                               intelligence and neuromorphic computing,” Nature Photonics, vol. 15,
+efficiency. We evaluated B ranging from 16 to 128. At low                      no. 2, pp. 102–114, Feb. 2021.
+batch sizes (e.g., B = 16), effective throughput is throttled              [3] H. Jaeger, “Short term memory in echo state networks,” German
+by pipeline latency overheads and PCIe transmission delays,                    National Research Institute for Computer Science, GMD, Chicago, IL,
+                                                                               USA, Tech. Rep. 152, 2001.
+while gradient estimation remains noisy. As B increases, these             [4] W. Maass, T. Natschläger, and H. Markram, “Real-time computing
+fixed overheads are amortized across more samples, leading                     without stable states: A new framework for neural computation based
+to substantial improvements in both hardware utilization and                   on perturbations,” Neural Computation, vol. 14, no. 11, pp. 2531–2560,
+                                                                               2002.
+convergence stability. However, beyond B = 64, through-                    [5] D. Brunner, “Parallel photonic information processing at gigabyte per
+put gains plateau while on-chip BRAM consumption rises                         second data rates using transient states,” Nature Communications, 2013.
+sharply. Notably, convergence stability continues to improve               [6] L. Larger, M. C. Soriano, D. Brunner, L. Appeltant, J. M. Gutierrez,
+                                                                               L. Pesquera, C. R. Mirasso, and I. Fischer, “Photonic information
+for B > 64. Based on this analysis, we select B = 64 as                        processing beyond turing: An optoelectronic implementation of reservoir
+the optimal configuration. This value achieves high arithmetic                 computing,” Optics Express, vol. 20, no. 3, p. 3241, Jan. 2012.
+                                                                                                                                                               13
+
+
+
+ [7] K. Vandoorne, P. Mechet, T. Van Vaerenbergh, M. Fiers, G. Morthier,                                   Chaofan Li received the B.S. degree in Electronic
+     D. Verstraeten, B. Schrauwen, J. Dambre, and P. Bienstman, “Exper-                                    Information Technology from ShanghaiTech Univer-
+     imental demonstration of reservoir computing on a silicon photonics                                   sity in 2025. He is currently pursuing the PhD degree
+     chip,” Nature Communications, vol. 5, no. 1, p. 3541, Mar. 2014.                                      in Electronic Science and Technology at Shang-
+ [8] J.-Y. Tang, B.-D. Lin, J. Yu, X. He, and C. Wang, “Parallel time-delay                                haiTech University, Shanghai, China. His research
+     reservoir computing with quantum dot lasers,” IEEE Journal of Quantum                                 interests includes VLSI design and the architecture
+     Electronics, vol. 58, no. 2, pp. 1–9, Apr. 2022.                                                      of AI accelerator.
+ [9] R.-Q. Li, Y.-W. Shen, B.-D. Lin, J. Yu, X. He, and C. Wang, “Scalable
+     wavelength-multiplexing photonic reservoir computing,” APL Machine
+     Learning, vol. 1, no. 3, p. 36105, Sep. 2023.
+[10] B.-D. Lin, Y.-W. Shen, J.-Y. Tang, J. Yu, X. He, and C. Wang, “Deep
+     time-delay reservoir computing with cascading injection-locked lasers,”
+     IEEE Journal of Selected Topics in Quantum Electronics, vol. 29, no.
+     6: Photonic Signal Processing, pp. 1–8, Nov. 2023.
+[11] Y.-W. Shen, R.-Q. Li, G.-T. Liu, J. Yu, X. He, L. Yi, and C. Wang, “Deep
+                                                                                                           Yuxuan Li received the B.S. degree in microelec-
+     photonic reservoir computing recurrent network,” Optica, vol. 10, no. 12,
+                                                                                                           tronics science and engineering from Shanghai Uni-
+     p. 1745, Dec. 2023.
+                                                                                                           versity in 2025. He is currently pursuing the doctoral
+[12] A. S. Weigend and N. A. Gershenfeld, Time Series Prediction: Fore-
+                                                                                                           degree at ShanghaiTech University. His research
+     casting the Future and Understanding the Past, ser. Santa Fe Institute.
+                                                                                                           interests include computer graphics and computer
+     Boulder: Routledge, 1993, no. v.Vol. 15.
+                                                                                                           architecture.
+[13] A. Argyris, J. Bueno, and I. Fischer, “Photonic machine learning im-
+     plementation for signal recovery in optical communications,” Scientific
+     Reports, vol. 8, no. 1, p. 8487, May 2018.
+[14] P. Antonik, M. Haelterman, and S. Massar, “Online training for high-
+     performance analogue readout layers in photonic reservoir computers,”
+     Cognitive Computation, vol. 9, no. 3, pp. 297–306, Jun. 2017.
+[15] G. H. Golub and C. F. Van Loan, Matrix computations, 4th ed.
+     Baltimore, MD, USA: Baltimore:The Johns Hopkins University Press,
+     2013.
+[16] P. Antonik, F. Duport, M. Hermans, A. Smerieri, M. Haelterman, and                                    Yunxiang He received the B.S. degree in Computer
+     S. Massar, “Online training of an opto-electronic reservoir computer                                  Science and Technology from ShanghaiTech Uni-
+     applied to real-time channel equalization,” IEEE Transactions on Neural                               versity in 2025. He is currently pursuing the M.S.
+     Networks and Learning Systems, vol. 28, no. 11, pp. 2686–2698, Nov.                                   degree at ShanghaiTech University. His research
+     2017.                                                                                                 interests focus on high-performance, low-power in-
+[17] J. L. Hennessy and D. A. Patterson, Computer Architecture: A Quanti-                                  tegrated circuits and AI accelerators for vision and
+     tative Approach. San Francisco, CA: Morgan Kaufmann, 2011.                                            graphics processing.
+[18] E. Nurvitadhi, G. Venkatesh, J. Sim, D. Marr, R. Huang, J. Ong
+     Gee Hock, Y. T. Liew, K. Srivatsan, D. Moss, S. Subhaschandra, and
+     G. Boudoukh, “Can FPGAs beat GPUs in accelerating next-generation
+     deep neural networks?” in Proceedings of the 2017 ACM/SIGDA In-
+     ternational Symposium on Field-programmable Gate Arrays, ser. FPGA
+     ’17. New York, NY, USA: Association for Computing Machinery, Feb.
+     2017, pp. 5–14.
+[19] S. M. Mohamed, W. S. Sayed, A. G. Radwan, and L. A. Said, “FPGA
+     implementation of reconfigurable CORDIC algorithm and a memristive                                    Haochuan Wan (Graduate Student Member, IEEE)
+     chaotic system with transcendental nonlinearities,” IEEE Transactions                                 received his B.Eng. degree from ShanghaiTech Uni-
+     on Circuits and Systems I: Regular Papers, vol. 69, no. 7, pp. 2885–                                  versity, Shanghai, China, in 2021. He is currently
+     2892, Jul. 2022.                                                                                      pursuing a Ph.D. degree at the School of Information
+[20] S. Ikeda, H. Awano, and T. Sato, “Online training and inference system                                Science and Technology, ShanghaiTech University.
+     on edge FPGA using delayed feedback reservoir,” IEEE Transactions                                     His research interests include digital ASIC design
+     on Computer-Aided Design of Integrated Circuits and Systems, vol. 44,                                 and hardware acceleration for neural rendering al-
+     no. 9, pp. 3323–3335, Sep. 2025.                                                                      gorithms.
+[21] Wm. A. Wulf and S. A. McKee, “Hitting the memory wall: Implications
+     of the obvious,” ACM SIGARCH Computer Architecture News, vol. 23,
+     no. 1, pp. 20–24, Mar. 1995.
+[22] Kung, “Why systolic architectures?” Computer, vol. 15, no. 1, pp. 37–
+     46, Jan. 1982.
+[23] QueenTest Electronics, “QT7012-L kintex ultrascale FPGA develop-
+     ment board datasheet,” [Online]. Available: https://www.queentest.cn/
+                                                                                                             Xin Lou (Senior Member, IEEE) received the
+     Products/qt7012lfpg.html, accessed: Jan. 2026.
+                                                                                                             B.Eng. degree in Electronic Information Technol-
+[24] Xilinx (AMD), Kintex UltraScale FPGA Data Sheet: DC and AC
+                                                                                                             ogy and Instrumentation from Zhejiang University
+     Switching Characteristics (DS892), Xilinx Inc., Aug. 2021, v1.19.
+                                                                                                             (ZJU), China, in 2010 and M.Sc. degree in System-
+[25] QueenTest Electronics, “QT7125-FMC high-speed AD data acquisition
+                                                                                                             on-Chip Design from Royal Institute of Technology
+     card datasheet,” [Online]. Available: https://www.queentest.cn/Products/
+                                                                                                             (KTH), Sweden, in 2012 and PhD degree in Electri-
+     qt7125fmca.html, accessed: Jan. 2026.
+                                                                                                             cal and Electronic Engineering from Nanyang Tech-
+[26] D. Yan, W.-X. Wang, L. Zuo, and X.-W. Zhang, “Revisiting the Adjoint
+                                                                                                             nological University (NTU), Singapore, in 2016.
+     Matrix for FPGA Calculating the Triangular Matrix Inversion,” IEEE
+                                                                                                             Then he joined VIRTUS, IC Design Centre of Excel-
+     Transactions on Circuits and Systems II: Express Briefs, vol. 68, no. 6,
+                                                                                                             lence at NTU as a research scientist. He is currently
+     pp. 2127–2131, Jun. 2021.
+                                                                                                             a tenured Associate Professor with the School of
+[27] X.-W. Zhang, L. Zuo, M. Li, and J.-X. Guo, “High-throughput FPGA
+                                                                                 Information Science and Technology, ShanghaiTech University, Shanghai,
+     implementation of matrix inversion for control systems,” IEEE Trans-
+                                                                                 China. His research interests primarily focus on high-performance and energy-
+     actions on Industrial Electronics, vol. 68, no. 7, pp. 6205–6216, Jul.
+                                                                                 efficient integrated circuits and systems for vision and graphics processing. Dr.
+     2021.
+                                                                                 Lou serves as an Associate Editor of IEEE Transactions on Very Large Scale
+                                                                                 Integration, and was an Associate Editor of IEEE Transactions on Circuits and
+                                                                                 Systems II: Express Briefs (2022-2023), a Guest Editor of Associate Editor
+                                                                                 of IEEE Transactions on Circuits and Systems I (2024).
+

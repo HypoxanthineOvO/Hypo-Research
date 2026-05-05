@@ -1,0 +1,108 @@
+pipeline:
+  name: Hypo-Research
+  status: completed
+  prompts_total: 6
+  prompts_completed: 6
+  started: "2026-05-05T01:28:16+08:00"
+  finished: "2026-05-05T01:51:16+08:00"
+
+last_heartbeat: "2026-05-05T01:51:16+08:00"
+
+current:
+  phase: completed
+  prompt_index: 9
+  prompt_file: .pipeline/prompts/09-guide-execute-mode-and-ia-documentation.md
+  prompt_name: M06 - Guide Execute Mode and IA Documentation
+  step: null
+  step_index: 0
+
+milestones:
+  -
+    id: M01
+    name: Guide Routing Foundation
+    prompt_file: .pipeline/prompts/04-guide-routing-foundation.md
+    status: done
+    report_file: .pipeline/reports/04-guide-routing-foundation.report.md
+  -
+    id: M02
+    name: Full Check Framework
+    prompt_file: .pipeline/prompts/05-full-check-framework.md
+    status: done
+    report_file: .pipeline/reports/05-full-check-framework.report.md
+  -
+    id: M03
+    name: Research Report V2 Structure
+    prompt_file: .pipeline/prompts/06-research-report-v2-structure.md
+    status: done
+    report_file: .pipeline/reports/06-research-report-v2-structure.report.md
+  -
+    id: M04
+    name: Read PDF Ingestion Prototype
+    prompt_file: .pipeline/prompts/07-read-pdf-ingestion-prototype.md
+    status: done
+    report_file: .pipeline/reports/07-read-pdf-ingestion-prototype.report.md
+  -
+    id: M05
+    name: Read L2 Evidence Cards
+    prompt_file: .pipeline/prompts/08-read-l2-evidence-cards.md
+    status: done
+    report_file: .pipeline/reports/08-read-l2-evidence-cards.report.md
+  -
+    id: M06
+    name: Guide Execute Mode and IA Documentation
+    prompt_file: .pipeline/prompts/09-guide-execute-mode-and-ia-documentation.md
+    status: done
+    report_file: .pipeline/reports/09-guide-execute-mode-and-ia-documentation.report.md
+
+history:
+  completed_prompts:
+    -
+      prompt_index: 4
+      prompt_file: .pipeline/prompts/04-guide-routing-foundation.md
+      prompt_name: M01 - Guide Routing Foundation
+      result: pass
+      report_file: .pipeline/reports/04-guide-routing-foundation.report.md
+      completed_at: "2026-05-05T01:34:00+08:00"
+    -
+      prompt_index: 5
+      prompt_file: .pipeline/prompts/05-full-check-framework.md
+      prompt_name: M02 - Full Check Framework
+      result: pass
+      report_file: .pipeline/reports/05-full-check-framework.report.md
+      completed_at: "2026-05-05T01:38:00+08:00"
+    -
+      prompt_index: 6
+      prompt_file: .pipeline/prompts/06-research-report-v2-structure.md
+      prompt_name: M03 - Research Report V2 Structure
+      result: pass
+      report_file: .pipeline/reports/06-research-report-v2-structure.report.md
+      completed_at: "2026-05-05T01:47:00+08:00"
+    -
+      prompt_index: 7
+      prompt_file: .pipeline/prompts/07-read-pdf-ingestion-prototype.md
+      prompt_name: M04 - Read PDF Ingestion Prototype
+      result: pass
+      report_file: .pipeline/reports/07-read-pdf-ingestion-prototype.report.md
+      completed_at: "2026-05-05T01:55:00+08:00"
+    -
+      prompt_index: 8
+      prompt_file: .pipeline/prompts/08-read-l2-evidence-cards.md
+      prompt_name: M05 - Read L2 Evidence Cards
+      result: pass
+      report_file: .pipeline/reports/08-read-l2-evidence-cards.report.md
+      completed_at: "2026-05-05T01:50:24+08:00"
+    -
+      prompt_index: 9
+      prompt_file: .pipeline/prompts/09-guide-execute-mode-and-ia-documentation.md
+      prompt_name: M06 - Guide Execute Mode and IA Documentation
+      result: pass
+      report_file: .pipeline/reports/09-guide-execute-mode-and-ia-documentation.report.md
+      completed_at: "2026-05-05T01:51:16+08:00"
+
+acceptance:
+  scope: cycle
+  state: accepted
+  mode: manual
+  cycle_id: C2
+  requested_at: "2026-05-05T01:51:16+08:00"
+  updated_at: "2026-05-05T13:28:04+08:00"

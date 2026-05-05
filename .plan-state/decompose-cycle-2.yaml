@@ -1,0 +1,28 @@
+mode: single_feature
+workflow_kind: build
+decomposed_at: "2026-05-05T01:21:42+08:00"
+milestones:
+  -
+    id: M01
+    name: Guide Routing Foundation
+    validation: router unit tests and guide CLI tests
+  -
+    id: M02
+    name: Full Check Framework
+    validation: check --full JSON/report tests
+  -
+    id: M03
+    name: Research Report V2 Structure
+    validation: markdown golden tests and search compatibility
+  -
+    id: M04
+    name: Read PDF Ingestion Prototype
+    validation: artifact schema and sample PDF CLI smoke
+  -
+    id: M05
+    name: Read L2 Evidence Cards
+    validation: evidence card schema and sample extraction
+  -
+    id: M06
+    name: Guide Execute Mode and IA Documentation
+    validation: end-to-end CLI smoke and docs consistency

@@ -1,0 +1,67 @@
+ok: true
+checked_at: "2026-05-05T15:31:52+08:00"
+stale_count: 0
+error_count: 0
+refreshed:
+  - PROJECT-SUMMARY.md
+  - .pipeline/PROGRESS.md
+  - .pipeline/prompts/
+  - docs/
+  - skill mirrors
+skipped:
+  -
+    id: progress_compact
+    path: .pipeline/PROGRESS.compact.md
+    reason: refreshed separately
+  -
+    id: metrics_compact
+    path: .pipeline/metrics.compact.yaml
+    reason: source_missing
+  -
+    id: reports_compact
+    path: .pipeline/reports.compact.md
+    reason: source_missing
+failures: []
+artifacts:
+  -
+    id: project_summary
+    path: PROJECT-SUMMARY.md
+    status: fresh
+    severity: ok
+    repair_hint: null
+  -
+    id: progress
+    path: .pipeline/PROGRESS.md
+    status: fresh
+    severity: ok
+    repair_hint: null
+  -
+    id: prompt_plan
+    path: .pipeline/prompts/
+    status: fresh
+    severity: ok
+    repair_hint: null
+  -
+    id: docs
+    path: docs/
+    status: fresh
+    severity: ok
+    repair_hint: null
+  -
+    id: skill_mirrors
+    path: .agents/skills/hypo-research/skills/
+    status: fresh
+    severity: ok
+    repair_hint: null
+  -
+    id: architecture
+    path: .pipeline/architecture/
+    status: fresh
+    severity: ok
+    repair_hint: null
+  -
+    id: rules
+    path: .pipeline/rules.yaml
+    status: fresh
+    severity: ok
+    repair_hint: null

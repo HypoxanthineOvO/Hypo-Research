@@ -1,0 +1,19 @@
+generated_at: "2026-05-05T01:21:42+08:00"
+project: Hypo-Research
+mode: append_cycle
+previous_cycle: 1
+workflow_kind: build
+preset: tdd
+prompt_count: 6
+prompt_start_index: 4
+files:
+  - .pipeline/cycle.yaml
+  - .pipeline/config.yaml
+  - .pipeline/state.yaml
+  - .pipeline/PROGRESS.md
+  - .pipeline/prompts/04-guide-routing-foundation.md
+  - .pipeline/prompts/05-full-check-framework.md
+  - .pipeline/prompts/06-research-report-v2-structure.md
+  - .pipeline/prompts/07-read-pdf-ingestion-prototype.md
+  - .pipeline/prompts/08-read-l2-evidence-cards.md
+  - .pipeline/prompts/09-guide-execute-mode-and-ia-documentation.md

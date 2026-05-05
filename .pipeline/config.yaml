@@ -1,0 +1,33 @@
+pipeline:
+  name: Hypo-Research
+  source: local
+  output: local
+  prompts_dir: .pipeline/prompts
+  reports_dir: .pipeline/reports
+
+project:
+  name: hypo-research
+  description: Academic research assistant skill pack and CLI for literature search, paper writing checks, simulated review, rebuttal, ideation, planning, meetings, and project tracking.
+  language: python
+  package_manager: uv
+  source_dir: src/hypo_research
+  tests_dir: tests
+
+default_workflow_kind: build
+
+execution:
+  mode: self
+  steps:
+    preset: tdd
+
+evaluation:
+  auto_continue: false
+  max_diff_score: 3
+  checks:
+    - tests_pass
+    - no_regressions
+    - matches_plan
+    - code_quality
+
+test:
+  command: uv run pytest

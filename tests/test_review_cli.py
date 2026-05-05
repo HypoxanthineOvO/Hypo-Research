@@ -35,6 +35,17 @@ def test_review_cli_basic(tmp_path: Path) -> None:
     assert "贺云翔" in result.output
 
 
+def test_review_cli_directory_target(tmp_path: Path) -> None:
+    paper_dir = tmp_path / "paper"
+    paper_dir.mkdir()
+    tex_file(paper_dir)
+
+    result = CliRunner().invoke(main, ["review", str(paper_dir), "--no-literature"])
+
+    assert result.exit_code == 0
+    assert "模拟审稿报告" in result.output
+
+
 def test_review_cli_venue_panel_reviewers_and_severity(tmp_path: Path) -> None:
     path = tex_file(tmp_path)
     runner = CliRunner()

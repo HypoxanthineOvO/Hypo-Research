@@ -1,0 +1,19 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": [
+    "AGENTS.md",
+    ".pipeline/rules.yaml"
+  ],
+  "compaction": {
+    "auto": true,
+    "prune": true
+  },
+  "permission": {
+    "edit": "ask",
+    "bash": "ask",
+    "question": "allow"
+  },
+  "plugin": [
+    ".opencode/plugins/hypo-workflow.ts"
+  ]
+}

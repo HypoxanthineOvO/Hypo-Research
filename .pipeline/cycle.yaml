@@ -1,0 +1,63 @@
+cycle:
+  number: 2
+  name: "Hypo-Research Guide, Check, and Read Implementation"
+  workflow_kind: build
+  type: feature
+  status: completed
+  previous_cycle: 1
+  created_at: "2026-05-05T01:21:42+08:00"
+  completed_at: "2026-05-05T01:51:16+08:00"
+  context_sources:
+    - .pipeline/reports/01-instruction-and-entry-information-architecture-review.report.md
+    - .pipeline/reports/02-pdf-full-text-reading-and-conversion-capability-review.report.md
+    - .pipeline/reports/03-literature-report-deep-read-workflow-and-roadmap.report.md
+  lifecycle_policy:
+    reject:
+      default_action: needs_revision
+    accept:
+      next: complete
+    resume:
+      default_action: continue_current
+    gates: {}
+    auto_continue: true
+  acceptance:
+    state: accepted
+    requested_at: "2026-05-05T01:51:16+08:00"
+    accepted_at: "2026-05-05T13:28:04+08:00"
+  milestones:
+    -
+      id: M01
+      name: "Guide Routing Foundation"
+      prompt_file: .pipeline/prompts/04-guide-routing-foundation.md
+      status: done
+      report_file: .pipeline/reports/04-guide-routing-foundation.report.md
+    -
+      id: M02
+      name: "Full Check Framework"
+      prompt_file: .pipeline/prompts/05-full-check-framework.md
+      status: done
+      report_file: .pipeline/reports/05-full-check-framework.report.md
+    -
+      id: M03
+      name: "Research Report V2 Structure"
+      prompt_file: .pipeline/prompts/06-research-report-v2-structure.md
+      status: done
+      report_file: .pipeline/reports/06-research-report-v2-structure.report.md
+    -
+      id: M04
+      name: "Read PDF Ingestion Prototype"
+      prompt_file: .pipeline/prompts/07-read-pdf-ingestion-prototype.md
+      status: done
+      report_file: .pipeline/reports/07-read-pdf-ingestion-prototype.report.md
+    -
+      id: M05
+      name: "Read L2 Evidence Cards"
+      prompt_file: .pipeline/prompts/08-read-l2-evidence-cards.md
+      status: done
+      report_file: .pipeline/reports/08-read-l2-evidence-cards.report.md
+    -
+      id: M06
+      name: "Guide Execute Mode and IA Documentation"
+      prompt_file: .pipeline/prompts/09-guide-execute-mode-and-ia-documentation.md
+      status: done
+      report_file: .pipeline/reports/09-guide-execute-mode-and-ia-documentation.report.md

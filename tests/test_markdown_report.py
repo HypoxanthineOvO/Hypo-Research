@@ -87,6 +87,22 @@ def test_generate_report_basic_content(tmp_path: Path) -> None:
     assert "Semantic Scholar, OpenAlex, arXiv" in content
 
 
+def test_generate_report_includes_research_brief_v2_sections(tmp_path: Path) -> None:
+    output_path = tmp_path / "results.md"
+    generate_report(
+        [make_paper(title="Verified Paper", verification=VerificationLevel.VERIFIED)],
+        make_meta(),
+        output_path,
+    )
+
+    content = output_path.read_text(encoding="utf-8")
+    assert "## Research Brief V2" in content
+    assert "### 0. Field Familiarity and Task Setting" in content
+    assert "### 1. Concept Primer Placeholder" in content
+    assert "### 5. Method / Dataset / Claim Matrix" in content
+    assert "| Paper | Evidence Depth | Method | Dataset/Benchmark | Key Claim | Evidence | Confidence |" in content
+
+
 def test_generate_report_groups_by_verification() -> None:
     output_path = Path("/tmp/test_report.md")
     papers = [

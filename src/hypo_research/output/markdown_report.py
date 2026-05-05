@@ -49,6 +49,7 @@ def generate_report(
         "",
     ]
 
+    lines.extend(_render_research_brief_v2(papers, meta))
     lines.extend(_render_survey_summary(papers))
     lines.extend(_render_ranking_views(papers, ranking_view=ranking_view))
     lines.extend(["## Results by Verification Status", ""])
@@ -88,6 +89,72 @@ def generate_report(
 
     output_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
     return output_path
+
+
+def _render_research_brief_v2(papers: list[PaperResult], meta: SurveyMeta) -> list[str]:
+    if not papers:
+        return []
+    lines = [
+        "## Research Brief V2",
+        "",
+        "### 0. Field Familiarity and Task Setting",
+        "",
+        "- **Field familiarity**: unspecified",
+        "- **Task goal**: literature survey / reading plan",
+        f"- **Search strategy**: query=`{meta.query}`, sources={_format_sources(meta.sources_used)}",
+        "",
+        "### 1. Concept Primer Placeholder",
+        "",
+        "> Primer generation requires Agent/domain context. Use this slot for core concepts, terminology, method families, and common benchmarks when the user is new to the field.",
+        "",
+        "### 2. Paper Map Placeholder",
+        "",
+        "- Classics / foundations: pending classification",
+        "- Recent progress: pending classification",
+        "- Method representatives: pending classification",
+        "- Benchmark representatives: pending classification",
+        "",
+        "### 3. Candidate Pool Quality",
+        "",
+        f"- Verified papers: {meta.verified_count or 0}",
+        f"- Single-source papers: {meta.single_source_count or 0}",
+        f"- Metadata warnings: {meta.metadata_warnings_count or 0}",
+        f"- Metadata errors: {meta.metadata_errors_count or 0}",
+        "",
+        "### 4. Reading Order",
+        "",
+        "- Start with must-read/high-signal papers in the reading advice section below.",
+        "- Then inspect recent papers and high-citation foundations.",
+        "- Deep-read only papers that need method, dataset, figure, or claim evidence.",
+        "",
+        "### 5. Method / Dataset / Claim Matrix",
+        "",
+        "| Paper | Evidence Depth | Method | Dataset/Benchmark | Key Claim | Evidence | Confidence |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for paper in papers[:10]:
+        lines.append(
+            f"| {_short_title(paper.title)} | Abstract-only | pending | pending | pending | abstract/metadata | low |"
+        )
+    lines.extend(
+        [
+            "",
+            "### 6. Figure / Table Evidence Index",
+            "",
+            "| Paper | Figure/Table | What it shows | Supports which claim | Notes |",
+            "|---|---|---|---|---|",
+            "| pending | pending | pending | pending | Requires `hypo-research read extract` |",
+            "",
+            "### 7. Uncertainty Notes",
+            "",
+            "- Evidence depth is `Abstract-only` until a read artifact or Agent deep-read is attached.",
+            "- Method, dataset, figure, and claim fields are placeholders in search-only reports.",
+            "",
+            "---",
+            "",
+        ]
+    )
+    return lines
 
 
 def _render_survey_summary(papers: list[PaperResult]) -> list[str]:

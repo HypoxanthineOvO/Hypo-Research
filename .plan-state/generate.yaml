@@ -1,0 +1,17 @@
+generated_at: "2026-05-05T00:08:57+08:00"
+project: Hypo-Research
+mode: greenfield_cycle
+workflow_kind: analysis
+analysis_kind: repo_system
+preset: analysis
+prompt_count: 4
+files:
+  - .pipeline/cycle.yaml
+  - .pipeline/config.yaml
+  - .pipeline/state.yaml
+  - .pipeline/PROGRESS.md
+  - .pipeline/design-spec.md
+  - .pipeline/prompts/00-positioning-and-hypo-workflow-relationship-review.md
+  - .pipeline/prompts/01-instruction-and-entry-information-architecture-review.md
+  - .pipeline/prompts/02-pdf-full-text-reading-and-conversion-capability-review.md
+  - .pipeline/prompts/03-literature-report-deep-read-workflow-and-roadmap.md

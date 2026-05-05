@@ -90,3 +90,14 @@ def test_check_stats_populated(tmp_path) -> None:
     assert report.stats.total_labels > 0
     assert report.stats.total_refs > 0
     assert report.stats.total_sections > 0
+
+
+def test_check_full_includes_agent_checklist(tmp_path) -> None:
+    src = tmp_path / "test.tex"
+    shutil.copy(FIX_BUGGY, src)
+    report = run_check(str(src), verify=False, save_report=False, full=True)
+    payload = report.to_payload()
+    assert payload["full_check"] is True
+    checklist = payload["agent_review_checklist"]
+    assert checklist
+    assert any("claim" in item["focus"] for item in checklist)

@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from hypo_research.paper_target import PaperTargetError, resolve_paper_target
 from hypo_research.writing.bib_parser import parse_bib_files
 from hypo_research.writing.project import resolve_project
 
@@ -91,14 +92,19 @@ _DOMAIN_KEYWORDS: dict[str, list[str]] = {
 
 
 def parse_paper(path: str) -> PaperStructure:
-    """Parse a paper from .tex or .pdf file."""
-    paper_path = Path(path)
-    suffix = paper_path.suffix.lower()
-    if suffix == ".tex":
-        return _parse_latex(paper_path)
-    if suffix == ".pdf":
-        return _parse_pdf(paper_path)
-    raise ValueError(f"不支持的文件格式: {path}，请使用 .tex 或 .pdf")
+    """Parse a paper from a .tex/.pdf file, directory, or supported archive."""
+    try:
+        with resolve_paper_target(path, prefer=("latex", "pdf")) as paper_path:
+            suffix = paper_path.suffix.lower()
+            if suffix == ".tex":
+                return _parse_latex(paper_path)
+            if suffix == ".pdf":
+                return _parse_pdf(paper_path)
+    except PaperTargetError as exc:
+        if "Unsupported paper target file" in str(exc):
+            raise ValueError(f"不支持的文件格式: {path}，请使用 .tex/.pdf 文件、目录或压缩包") from exc
+        raise ValueError(str(exc)) from exc
+    raise ValueError(f"不支持的文件格式: {path}，请使用 .tex/.pdf 文件、目录或压缩包")
 
 
 def _parse_latex(path: Path) -> PaperStructure:

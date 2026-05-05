@@ -1,0 +1,1230 @@
+                    NeuRex: A Case for Neural Rendering Acceleration
+      Junseo Lee                 Kwanseok Choi                      Jungi Lee              Seokwon Lee         Joonho Whangbo               Jaewoong Sim
+                                                                             Seoul National University
+                                 {junseo.lee, kwanseok.choi, jungi.lee, seokwon.lee, joonho0320, jaewoong}@snu.ac.kr
+
+ABSTRACT                                                                                        neural scene representations allow for capturing the fine details of
+This paper presents NeuRex, an accelerator architecture that ef-                                complex surfaces or shapes in a more compact way.
+ficiently performs the modern neural rendering pipeline with an                                     While neural rendering is a promising approach to a variety
+algorithmic enhancement and supporting hardware. NeuRex lever-                                  of tasks in graphics such as image super-resolution [11, 33] and
+ages the insights from an in-depth analysis of the state-of-the-art                             novel view synthesis [35, 39, 51], it requires a significant amount
+neural scene representation to make the multi-resolution hash en-                               of computation to achieve high-quality renderings. Conventional
+coding, which is the key operational primitive in modern neural                                 neural rendering is based on the multi-layer perceptron (MLP)
+renderings, more hardware-friendly and features a specialized hash                              network, which consists of a set of fully-connected layers. The MLP
+encoding engine that enables us to effectively perform the primitive                            needs to be queried millions of times to render an image because
+and the overall rendering pipeline. We implement and synthesize                                 every sample point along the ray for each pixel needs to run through
+NeuRex using a commercial 28nm process technology and evaluate                                  the neural networks to produce an output value that corresponds
+two versions of NeuRex (NeuRex-Edge, NeuRex-Server) on a range                                  to the input coordinate. This makes the neural rendering process
+of scenes with different image resolutions for mobile and high-end                              extremely slow even on the high-end consumer GPUs.
+computing platforms. Our evaluation shows that NeuRex achieves                                      As such, there has been a plethora of recent works that aim to
+up to 9.88× and 3.11× speedups against the mobile and high-end                                  reduce the training and rendering time of neural representations
+consumer GPUs with a substantially small area overhead and lower                                via algorithmic enhancements [10, 17, 18, 23, 30, 37, 38, 48, 52, 58].
+energy consumption.                                                                             Despite the active research in the graphics community and the
+                                                                                                importance of neural scene representations, however, there has
+CCS CONCEPTS                                                                                    been little to no work that systematically evaluates the performance
+                                                                                                of the workload on today’s hardware systems and helps understand
+• Computer systems organization → Neural networks; • Com-
+                                                                                                its architectural implications from the hardware perspective.
+puting methodologies → Rendering.
+                                                                                                    In this work, we start by investigating the characteristics of
+                                                                                                modern neural rendering algorithms and present an in-depth char-
+KEYWORDS
+                                                                                                acterization of several representative models to understand their
+Neural rendering, NeRF, neural networks, machine learning, accel-                               architectural implications along with compute and memory require-
+erators                                                                                         ments. In particular, we performed a detailed characterization of the
+ACM Reference Format:                                                                           state-of-the-art neural scene representation [37] that substantially
+Junseo Lee, Kwanseok Choi, Jungi Lee, Seokwon Lee, Joonho Whangbo,                              reduces the training and rendering time while also improving the
+Jaewoong Sim. 2023. NeuRex: A Case for Neural Rendering Acceleration.                           quality of rendered views compared to others. To do so, instead
+In Proceedings of the 50th Annual International Symposium on Computer                           of using a large MLP with simple input encodings, the state-of-
+Architecture (ISCA ’23), June 17–21, 2023, Orlando, FL, USA. ACM, New York,
+                                                                                                the-art exploits the direction of using a smaller MLP with multiple
+NY, USA, 13 pages. https://doi.org/10.1145/3579371.3589056
+                                                                                                hash encoding tables that contain trainable feature vectors (i.e., in-
+                                                                                                put encoding parameters), each of which captures different grid
+1     INTRODUCTION                                                                              resolutions.
+Neural rendering is a new and rapidly emerging approach that                                        Although it performs significantly better than prior works in
+synthesizes photo-realistic images or videos in a controllable way                              both rendering time and quality, we observe that the multi-resolution
+using deep neural networks (DNNs) [55]. By encoding scenes and                                  hash encoding primitive used in the state-of-the-art model is not
+objects in the weights of deep neural networks, neural rendering                                hardware-friendly and leads to several challenges and inefficien-
+implicitly maps input coordinates into some numeric values such                                 cies in executing the neural rendering pipeline on general-purpose
+as colors or radiance. Compared to traditional explicit 3D represen-                            computing platforms. Our profiling results on commodity GPUs
+tations such as polygonal meshes, voxels, or point clouds, implicit                             reveal that it takes more time to perform multi-resolution hash
+Permission to make digital or hard copies of all or part of this work for personal or
+                                                                                                encodings than MLP computation, and these two operations are
+classroom use is granted without fee provided that copies are not made or distributed           serialized in execution. In addition, due to the irregular access na-
+for profit or commercial advantage and that copies bear this notice and the full citation       ture of hash tables, the large encoding table needs to fit into the
+on the first page. Copyrights for components of this work owned by others than the
+author(s) must be honored. Abstracting with credit is permitted. To copy otherwise, or          on-chip cache; otherwise, the time spent on encoding lookups sig-
+republish, to post on servers or to redistribute to lists, requires prior specific permission   nificantly increases, and so does the overall training and rendering
+and/or a fee. Request permissions from permissions@acm.org.                                     time. Furthermore, each hash entry access only uses four out of
+ISCA ’23, June 17–21, 2023, Orlando, FL, USA
+© 2023 Copyright held by the owner/author(s). Publication rights licensed to ACM.               64 bytes of data from a cacheline or off-chip memory, leading to a
+ACM ISBN 979-8-4007-0095-8/23/06. . . $15.00                                                    substantial waste of the memory bandwidth. The compute cores
+https://doi.org/10.1145/3579371.3589056
+ISCA ’23, June 17–21, 2023, Orlando, FL, USA                                                                                                        J. Lee, K. Choi, J. Lee, S. Lee, J. Whangbo, and J. Sim
+
+
+                                        Sampled Points                                        Encoded Features                       Sample Next Step Points (②)
+
+
+
+
+                                                                     ③ Positional Encoding
+                                         (𝑥! , 𝑦! , 𝑧! , 𝜃! , 𝜙! )                                 Feat. 0                                     No                            ⑥
+                                                                                                                                          ⑤                                       Final Color of Pixels
+    ②                                    (𝑥" , 𝑦" , 𝑧" , 𝜃" , 𝜙" )                                 Feat. 1                                                         Yes
+                                                                                                                                               𝑇! < 𝑇"!# ?                   !
+                                         (𝑥# , 𝑦# , 𝑧# , 𝜃# , 𝜙# )                                 Feat. 2
+                                                                                                                           ④ MLP
+                                         (𝑥$ , 𝑦$ , 𝑧$ , 𝜃$ , 𝜙$ )                                 Feat. 3
+                                ①        (𝑥% , 𝑦% , 𝑧% , 𝜃% , 𝜙% )                                 Feat. 4
+                                          𝑥& , 𝑦& , 𝑧& , 𝜃& , 𝜙&                                   Feat. 5
+                                                                                                                                              Color & Density
+                                                                                                          Iteration
+
+
+                            ①                       ②                                           ③                                      ⑤                   ⑥
+                            Ray                    Point                                     Positional               ④ MLP           Ray                Volume
+        Viewpoint        Generation              Sampling                                    Encoding                              Termination          Rendering
+                                                                                                                                                                          Rendered Image
+
+
+                                        Figure 1: A volume rendering pipeline with Neural Radiance Fields (NeRF).
+
+
+are also underutilized because the MLP is small in size, and they                                                       • To our knowledge, this is the first work to comprehensively
+are mostly idle when performing input encodings and hash table                                                            analyze the performance bottlenecks of the modern neural scene
+lookups. In short, general-purpose GPUs are an imbalanced de-                                                             representation on today’s computing platforms and identify the
+sign point and are inefficient in running the state-of-the-art neural                                                     root causes of the performance inefficiencies.
+rendering models.                                                                                                       • We propose an algorithmic enhancement that makes multi-
+   In this paper, we present NeuRex, a neural rendering accelerator                                                       resolution hash encodings more hardware-friendly to efficiently
+that efficiently performs modern neural graphics computation by                                                           perform the primitive without the need for a multi-megabyte
+making changes in the execution flow of the rendering pipeline with                                                       on-chip memory.
+algorithmic enhancements and supporting hardware. NeuRex builds                                                         • We present NeuRex, a hardware accelerator that effectively per-
+on the key observations from our in-depth analysis to make multi-                                                         forms neural graphics computation by minimally extending the
+resolution hash encodings more hardware-friendly and features                                                             existing DNN accelerators. It features a specialized hash encod-
+a specialized hash encoding engine that enables us to effectively                                                         ing engine tailored to the needs of modern neural renderings.
+perform the primitive and the overall neural rendering pipeline.
+   The key idea behind our algorithmic enhancement is to parti-
+tion the input coordinate grid into several subgrids, each of which                                                    2      BACKGROUND
+owns a portion of a large hash encoding table. We then arrange the                                                     In this section, we briefly introduce neural scene representations
+processing of input coordinates such that we complete processing                                                       and discuss the characteristics of the ML-based rendering method.
+one subgrid for all resolutions before moving onto another. This
+restricts hash table access to a range of consecutive entries, thereby
+allowing the hardware accelerator to load only a part of the hash
+                                                                                                                       2.1     Neural Rendering
+table to the on-chip memory at a time; thus, hardware accelera-                                                        Neural rendering combines the ideas from classical computer graph-
+tors do not need to employ a multi-megabyte on-chip memory to                                                          ics with the recent advances in deep neural networks to render
+perform the multi-resolution hash encoding primitive efficiently.                                                      images or videos. At a high level, a neural rendering pipeline learns
+This also enables the opportunities to break the serialized execution                                                  a representation of a mathematical function that parameterizes a
+of input encodings and MLP computation and overlap these two                                                           2D or 3D scene using a multi-layer perceptron (MLP) as a function
+operations effectively with supporting hardware, thereby leading                                                       approximator. Depending on the tasks and objectives, the MLP
+to better utilization of overall compute and memory resources in                                                       learns different implicit representations such as the mapping from
+the accelerator.                                                                                                       2D coordinates to RGB colors of an image [32] or the mapping from
+   We implement the hardware components of NeuRex in RTL                                                               3D coordinates to the distance to a surface [54]. Note that although
+and synthesize them using a commercial 28nm process node. For                                                          the specific tasks may differ, they share the common idea of using
+performance evaluation with a detailed off-chip memory timing                                                          MLPs as function approximators. In the following, we take as a rep-
+model, we build a cycle-level simulator that models the NeuRex                                                         resentative task a recent breakthrough of neural representations for
+architecture and evaluate it on a set of popular tasks and datasets                                                    volume rendering, called Neural Radiance Fields (NeRF), to discuss
+in graphics. Our evaluation shows that two variants of NeuRex                                                          state-of-the-art algorithms in this field.
+achieve up to 9.88× and 3.11× speedups compared to the represen-
+tative mobile (Jetson Xavier NX; Volta GPU; 12nm) and high-end                                                         2.2     Neural Radiance Fields (NeRF)
+consumer (RTX 3070; Ampere GPU; 8nm) computing platforms,
+with a small area budget of 3.14mm2 and 21.37mm2 . In summary,                                                         A Neural Radiance Field (NeRF) is a method that generates novel
+this paper makes the following contributions:                                                                          views of complex 3D scenes from a partial set of 2D images. In
+                                                                                                                       NeRF, scenes are represented implicitly in the weights of an MLP
+NeuRex: A Case for Neural Rendering Acceleration                                                                                        ISCA ’23, June 17–21, 2023, Orlando, FL, USA
+
+
+                                                                      Forward Back Prop.         2.3     NeRF Model Architectures
+                      Positional
+                      Encoding                                                                   The original NeRF model [35] is a pioneering work that demon-
+   Sampled Point
+    (𝑥, 𝑦, 𝑧, 𝜃, 𝜙)          𝒇                    MLP                                            strates the benefit of using positional encodings and radiance fields,
+                                                                                                 which inspires a large number of subsequent works that build
+                                                                                                 upon the original NeRF. To understand the performance charac-
+                                                                                                 teristics and rendering quality of different NeRF model structures,
+      (a) Original NeRF: function-based positional encodings with a large MLP                    we choose four representative models for comparisons, NeRF [35],
+                       Hash Tables                                                               mip-NeRF [6], NSVF [30], and Instant-NGP [37], which we classify
+                                                                      Forward Back Prop.
+                                                                                                 into two categories.
+                            Level 𝟎
+                                                                                                 Original NeRF-based Models. In the original NeRF, the fully-
+   Sampled Point                                                                                 connected (FC) layers in the MLP are separated into two parts: one
+    (𝑥, 𝑦, 𝑧, 𝜃, 𝜙)         Level 𝟏                             MLP
+                                 …                                                               for density (𝜎i ) computation and the other for color (ci ) computa-
+                           Level 𝑳 − 𝟏
+                                                                                                 tion. The first part consists of 8 FC layers (with 256 channels per
+                                                                                                 layer) that produce the density value and a 256-dimensional feature
+      (b) Instant-NGP: trainable multi-resolution hash tables with a small MLP                   vector. The feature vector is then concatenated with the encoded
+                                                                                                 viewing direction (𝐹 (𝜃 i, 𝜙 i )), and the resulting vector is fed into one
+Figure 2: Model comparison between the original NeRF [35] and                                    additional FC layer with 128 channels to produce the color value. It
+Instant-NGP [37].                                                                                is the forerunner in NeRF, but it takes prohibitively long training
+using radiance fields.1 The MLP weights are trained with the partial                             and inference time due to the large and deep FC layers.
+                                                                                                     mip-NeRF attempts to address the issue of the original NeRF that
+set of 2D images, and the trained weights are used for rendering
+(inference) from a specific viewpoint.                                                           the rendering quality is significantly degraded when it renders a
+     Figure 1 shows how NeRF renders an image from a novel view-                                 different resolution from the trained images. To mitigate the prob-
+point. First, it generates and shoots a ray for each pixel of the image                          lem, mip-NeRF uses information from multiple points in a circular
+from the camera viewpoint. It then takes 𝐾 samples (s1 , s2 , ..., sk )                          region instead of a single critical point. However, the main model
+along the ray, each of which (si ) is a five-dimensional vector that                             architecture is similar to the original NeRF, so it is still bottlenecked
+consists of a 3D position (𝑥 i , 𝑦i , 𝑧 i ) and a 2D viewing direction (𝜃 i ,                    by the long latency of MLP computation. It also does not noticeably
+                                                                                                 improve the rendering quality when rendering images of the same
+𝜙 i ) of the ith sample point. The five-dimensional input vector is
+                                                                                                 resolution. Neural Sparse Voxel Fields (NSVF) exploits a sparse
+mapped to a higher dimensional space through the stage called po-
+                                                                                                 voxel representation to train the structure that captures the empti-
+sitional encodings. We feed this encoded feature after the positional
+                                                                                                 ness of a scene along with MLP weights. It skips computation for
+encoding into the neural network (MLP) to obtain the color and
+                                                                                                 empty voxels to accelerate training and rendering time, but it is
+density (ci , 𝜎i ) of the sample point. After obtaining all the color
+                                                                                                 still slow due to large MLPs.
+and density values from the sampled points, the final pixel color Ĉ
+is computed by alpha-blending the set of color and density values                                Parametric Encoding-based Models. Figure 2 compares the orig-
+along the ray, as shown in Equation 1. The transmittance Ti , which                              inal NeRF-based models with Instant-NGP. The key difference of
+is the probability of the ray reaching a point without colliding with                            Instant-NGP compared to the previous NeRF models is the use
+other objects, is computed by using the density (𝜎i ) and the distance                           of a parametric encoding with multi-resolution hash tables rather
+between adjacent samples (𝛿 i ).                                                                 than using a fixed input encoding. All the models previously men-
+                                                K
+                                                Õ
+                                                                                                 tioned use an untrainable input encoding, such as frequency encod-
+                                         Ĉ =     Ti 𝛼 i ci ,                              (1)   ings [35]. Although it is useful to extract high-dimensional features
+                                                i=1                                              from input position vectors, it is unavoidable to use a large MLP
+where Ti = exp(− i−1
+                Í                                                                                to achieve reasonable rendering quality. Instead of using a fixed
+                  j=1 𝜎j𝛿 j ) and 𝛼 i = 1 − exp(−𝜎i𝛿 i ).
+                                                                                                 input encoding function, Instant-NGP employs several trainable
+Computation Cost. To render an image, this process needs to be                                   hash tables for input encodings.2 This enables the use of a much
+repeated for every pixel in the image, which leads to a large num-                               smaller MLP and reduces the computation cost, thereby improving
+ber of MLP evaluations. For example, rendering a 𝑊 × 𝐻 image                                     the training and rendering speed while also achieving high-quality
+requires 𝑊 × 𝐻 × 𝐾 times MLP evaluations. To reduce the compu-                                   renderings.
+tation cost, NeRF models may adopt algorithm-level optimization
+techniques such as early ray termination (ERT) and empty space                                   2.4     Performance and Rendering Quality
+skipping (ESS) [30, 48]. When the ray meets the surface, we can
+                                                                                                 To understand the performance and rendering quality of the rep-
+skip the computation for the points behind the surface. It is the idea
+                                                                                                 resentative NeRF models, we compare them using four different
+of the ERT, and we can detect the solid surface when the accumu-
+                                                                                                 datasets: two synthetic (Syn-NeRF [35], Syn-NSVF [30]) and two
+lated transmittance (Ti ) gets lower than the pre-defined threshold
+                                                                                                 real-world (BlendedMVS [57], Tanks&Temples [27]) datasets. We
+value. The ESS is another optimization technique that ignores the
+                                                                                                 also choose the scenes with varying image resolutions to have more
+computation of the sample points in an empty space.
+                                                                                                 generalized results.
+1 The radiance field consists of all light rays that flow through every point in every
+direction in a 3D space.                                                                         2 The encoding parameters are also learned along with the MLP weights during training.
+ISCA ’23, June 17–21, 2023, Orlando, FL, USA                                                                                                                                                                                       J. Lee, K. Choi, J. Lee, S. Lee, J. Whangbo, and J. Sim
+
+
+                               Table 1: Peak signal-to-noise ratios (PSNR) comparison.                                                                                                        Table 2: Parameters for multi-resolution hash encodings (default).
+
+        Dataset                                          Syn-NeRF                      Syn-NSVF                   BlendedMVS                           Tanks&Temples                           Parameter                                                         Symbol           Value
+        Scene                                                Mic                          Palace                     Fountain                               Family
+                                                          (800×800)                     (800×800)                   (768×576)                            (1920×1080)                           Num. of resolution levels (num. of hash tables)                   𝐿                    16
+        NeRF [35]                                            16.10                         15.96                          14.73                                14.44                           Num. of entries per level (hash table size)                       𝑇                   219
+        mip-NeRF [6]                                         15.82                         16.04                          15.14                                14.64                           Feature dimensions per entry                                      𝐹                     2
+        NSVF [30]                                            30.84                         28.58                          23.27                                26.73                           Each feature size                                                                 2 bytes
+        Instant-NGP [37]                                     40.33                         35.86                          30.70                                33.42
+                                                                                                                                                                                                                                                        𝐹
+            10000006
+               10                                                                                                                                                                                                                                   0
+ Rendering time (ms)
+
+
+
+
+                 1000005                                                                                                                                                                                                      Res. 0 (Base res.)    1
+                   10
+                                                                                                                                                                                                                                                    2
+                       100004                                                                                                                                                                                                                       3
+                        10
+                                                                                                                                                                                                                                                    4
+                        10003
+                        10                                                                                                                                                                                                                          5            𝒇
+                                                                                                                                                                                                    Bounding Box (Scene)                                                      Encoded
+                         1002                                                                                                                                                                                                                       6
+                        10                                                                                                                                                                                                                                                    Feature
+                                                                                                                                                                                                                                                    7
+                        10101                                                                                                                                                                                                                       8
+                                                                                                                                                                                                                                                    9
+                           1
+                                                                                                                                                                                                                                                   10
+                                NeRF
+
+                                       mip-NeRF
+
+                                                  NSVF
+
+
+
+                                                                        NeRF
+
+                                                                                mip-NeRF
+
+                                                                                           NSVF
+
+
+
+                                                                                                                NeRF
+
+                                                                                                                       mip-NeRF
+
+                                                                                                                                  NSVF
+
+
+
+                                                                                                                                                       NeRF
+
+                                                                                                                                                              mip-NeRF
+
+                                                                                                                                                                         NSVF
+                                                          Instant-NGP
+
+
+
+
+                                                                                                  Instant-NGP
+
+
+
+
+                                                                                                                                         Instant-NGP
+
+
+
+
+                                                                                                                                                                                Instant-NGP
+                                                                                                                                                                                                                                                                                     𝐹𝐿
+
+
+
+
+                                                                                                                                                                                                                                     …
+
+
+
+
+                                                                                                                                                                                                                                                                                 …
+                                                                                                                                                                                                                                                    0
+                                                                                                                                                                                                                                                    1
+                                                                                                                                                                                                                                 Res. 𝐿 − 1
+                                                                                                                                                                                                                                                    2
+                                                                                                                                                                                                                                                    3
+                                                                                                                                                                                                                                                    4
+                                       Syn-NeRF                                Syn-NSVF                            BlendedMVS                          Tanks &Temples                                                                               5            𝒇
+                                                                                                                                                                                                                                                    6
+                                         (Mic)                                  (Palace)                            (Fountain)                            (Family)                                                                                  7
+                                                                                                                                                                                                                                                                     3) Interpolation
+                                                                                                                                                                                                                                                    8
+                                                                                                                                                                                                                                                    9                & Concatenation
+                                                                                                                                                                                                                           1) Hashing of Neighbor  10
+Figure 3: Rendering time of four representative NeRF models across
+                                                                                                                                                                                                                                  Vertices
+various datasets (log scale).                                                                                                                                                                                                                 2) Hash Table Lookup
+
+
+   Table 1 compares the peak signal-to-noise ratio (PSNR) of the                                                                                                                                               Figure 4: Multi-resolution hash encodings.
+four representative models after training.3 We train each NeRF
+model for 100K iterations (which takes a few to tens of hours)                                                                                                                                We then identify the key operations that contribute to the over-
+except for Instant-NGP. Although we train Instant-NGP for less                                                                                                                                all rendering time (Section 3.3) and discuss our observations and
+than 10 minutes (31K iterations), it reaches a significantly higher                                                                                                                           bottlenecks of the execution flow on GPUs (Section 3.4).
+PSNR compared to others across all the datasets.
+   Figure 3 shows the rendering (inference) time of each trained
+                                                                                                                                                                                              3.1       Multi-resolution Hash Encoding
+model.4 With the best quality of a rendered image, the rendering
+time of Instant-NGP is also significantly lower than others. Note                                                                                                                             Instant-NGP [37] introduces a new primitive called multi-resolution
+that the original NeRF-based models can hardly be used in real-                                                                                                                               hash encoding. Figure 4 shows how a hash table-based input en-
+time or on-device renderings as they render images at less than one                                                                                                                           coding maps the input positions to the encoded feature. First, for
+frame per second (FPS). In particular, for the real-world scene with                                                                                                                          a sample point s, we find the voxel that surrounds the point and
+1920×1080 FHD resolution (Family), it takes about 8∼100 seconds to                                                                                                                            obtain an 𝐹 -dimensional feature vector for each vertex of the voxel
+render a single image. In contrast, we see that Instant-NGP renders                                                                                                                           by indexing into the hash table. The hash index is computed using
+a single image significantly faster than others.                                                                                                                                              the hash function in Equation 2. Each of xv, yv, zv corresponds to
+   In short, the original NeRF-based models require a significant                                                                                                                             the vertex coordinate of the voxel grid. P1 and P2 are unique, large
+amount of computation as every sample point needs to run through                                                                                                                              prime numbers, and ⊕ is the bit-wise XOR operator.
+the large and deep MLP. Considering the points are sampled from                                                                                                                                             h(xv , yv , zv ) = (xv · 1) ⊕ (yv · P1 ) ⊕ (zv · P2 ) mod T                   (2)
+a single ray, and each ray is sampled from every pixel, they are
+not likely viable solutions for real-time or on-device rendering                                                                                                                                  We then perform linear interpolation of the eight 𝐹 -dimensional
+tasks. To alleviate the problem, state-of-the-art algorithms focus                                                                                                                            feature vectors to obtain an 𝐹 -dimensional feature vector for the
+on reducing the size of compute-intensive MLPs without losing the                                                                                                                             sample input point at resolution level 𝐿. We repeat these steps 𝐿
+quality of rendered images. The parametric encoding is one promis-                                                                                                                            times, each with a different grid resolution (i.e., a different hash
+ing way to achieve this, which effectively reduces the amount of                                                                                                                              table), and concatenate the 𝐿 feature vectors from all levels, which
+computation while maintaining or even increasing the image qual-                                                                                                                              results in an 𝐹 ×𝐿-sized input vector for the MLP.
+ity over the original NeRF-based models. In the following section,                                                                                                                                The multi-resolution hash encoding uses 𝐿 as the number of res-
+we further investigate the state-of-the-art neural representation                                                                                                                             olution levels. The base (i.e., coarsest) grid resolution is set to 16, so
+that employs trainable input encoding parameters (i.e., feature vec-                                                                                                                          there are 163 voxels in the base resolution (i.e., 𝐿=0). The resolution
+tors) [37], which is our target for acceleration.                                                                                                                                             is scaled by a constant factor for finer levels (e.g., 𝐿=1,2,3,...), thereby
+                                                                                                                                                                                              increasing the total number of voxels in a cubic fashion. Each reso-
+3                          MOTIVATION                                                                                                                                                         lution level is assigned to an independent hash table, each of which
+In this section, we first explain the parametric encodings and the                                                                                                                            has up to 𝑇 hash entries. Each entry contains an 𝐹 -dimensional
+neural rendering pipeline used in Instant-NGP (Sections 3.1 and 3.2).                                                                                                                         feature vector, so the total number of trainable parameters for the
+3 The peak signal-to-noise ratio (PSNR) is one of the standard metrics to measure model                                                                                                       multi-resolution hash encoding is 𝐿×𝑇 ×𝐹 . Table 2 shows the default
+quality. Higher is better.                                                                                                                                                                    parameters for multi-resolution hash encodings in [37]. We use the
+4 We run the experiments on Titan RTX due to the large memory requirement of NSVF.                                                                                                            same values for our discussions in the following sections.
+NeuRex: A Case for Neural Rendering Acceleration                                                                                                                                ISCA ’23, June 17–21, 2023, Orlando, FL, USA
+
+
+                                                               𝐹
+                                 Input
+                              Coordinates                                                    Input Encoding                                                                                              Output
+                                                        𝑇      𝐿(                            (Hash Encoding)                                                                                              RGB
+                                 Pos. Dir.                                                                                    Density MLP                                         Color MLP
+                                                                                                         …
+                                                                                                                              32 x 64 64 x 16                                 32 x 64 64 x 64   64 x 3
+                                                               𝐿&
+                                                                                                                               Mat     Mat                                    Mat      Mat      Mat
+                        𝑁!"#$%                                                                                                                                                                                   𝑁!"#$%
+                                                              …                                                                Mul0    Mul1                                   Mul0     Mul1     Mul2
+
+
+
+                                   3      2                   𝐿&'                                   32                                                16          16                                         3
+                                                                                                                                            Output
+                                                                                                 Encoded                                   Density Density     Encoded
+                                                         Encoding                                Features                                  (1st Col)  MLP      Direction
+                                                          Tables                                                                                     Output     Vector
+                                                                                                         Input Encoding
+                                                                                                     (Frequency Encoding)
+
+                                       Figure 5: The model architecture in [37]. All parameters are the default values used for NeRF in the original paper.
+
+3.2                          GPU Execution Flow                                                                                                 computation for interpolation) takes more than 40% of the render-
+Figure 5 shows the high-level execution flow of the rendering                                                                                   ing time. Note that this ENC operation does not fit well into the
+pipeline with the multi-resolution hash encoding. Initially, there are                                                                          contemporary DNN accelerators.
+Npoint input positions, and they go through 16 hash tables and pro-
+duce an Npoint ×32 input feature matrix. The density MLP takes as                                                                               3.4    Observations and Inefficiencies
+input the feature matrix and produces an Npoint ×16 matrix, which
+                                                                                                                                                We further investigate the multi-resolution hash encoding primitive
+is then concatenated with an Npoint ×16 encoded direction matrix.
+                                                                                                                                                and make the following key observations.
+The resulting Npoint ×32 matrix is fed into the color MLP to produce
+3-D RGB values (i.e., ci ) for each input position. The number of                                                                               Observation I: Performance portability of multi-resolution
+input positions (Npoint ) can be from hundreds of thousands to tens                                                                             hash encodings. Although the time complexity of a hash table
+of millions depending on the image resolution; for instance, an FHD                                                                             lookup is 𝑂 (1), it is not a hardware-friendly operation. A well-
+image has two million pixels. Note that we need to perform eight                                                                                designed hash function outputs seemingly random hash indexes,
+encoding lookups per level for each input position, which leads to                                                                              which lead to irregular accesses to the hash table. As previously
+a significant number of hash table lookups in total.                                                                                            mentioned, the state-of-the-art neural representation model trains
+                                                                                                                                                16 (𝐿) hash tables (along with MLP weights), each of which is a
+3.3                          Latency Breakdown                                                                                                  multi-megabyte in size (e.g., sixteen 2MB hash tables in [37]). As
+Figure 6 decomposes the rendering time into five major opera-                                                                                   such, they do not all fit in the on-chip memory of most of today’s
+tions: Hash Encoding (ENC), Feature Computation (MLP), Ray Com-                                                                                 mobile or consumer GPUs/accelerators, thus the hash table access
+paction (Compaction),5 Empty Space Skipping (ESS), and Early Ray                                                                                can lead to frequent off-chip memory accesses if we naïvely per-
+Termination (ERT). For the experiments, we run Instant-NGP with                                                                                 form the operation. Furthermore, each hash entry access only takes
+the large Fox dataset (1920×1080 FHD resolution) on a range of                                                                                  four bytes (𝐹 =2) out of 64 bytes of data from the off-chip memory,
+GPUs including the edge device (Jetson Xavier NX).                                                                                              leading to a substantial waste of off-chip memory bandwidth.
+                                                                                                                                                   For the high-end consumer GPUs where the on-chip memory
+                                                            16151.1
+                                                                                                                                                capacity is larger than a single hash table, one solution is to load
+                      800                                                              100
+                                                                                                                                                the hash table into the on-chip memory level by level and stream
+                                                                                        80
+                                                                                                                                                through all sample points to obtain an Npoint ×2 partial input feature
+Rendering Time (ms)
+
+
+
+
+                      600
+                                                                      Percentage (%)
+
+
+
+
+                                                                                        60                                                      matrix for the corresponding level (𝐿) before moving onto another
+                      400
+                                                                                        40                                                      (𝐿+1) to avoid the costly off-chip memory access (which is the
+                      200
+                                                                                        20
+                                                                                                             ENC          MLP                   operation flow on GPUs); note that even in this case, the hash
+                                                                                                             Compaction   ESS
+                                                                                                             ERT          Others                encoding occupies more than 40% of the rendering time, as shown
+                        0                                                                0
+                            RTX 2080 Titan RTX RTX 3070 Xavier NX                            RTX 2080 Titan RTX RTX 3070 Xavier NX              in Figure 6. For the mobile and low-end/mid-range consumer GPUs,
+                                   (a) Total rendering time                                           (b) Time distribution                     however, the trained model does not efficiently run because even
+                                                                                                                                                a single hash table does not fit in the small on-chip cache, thereby
+    Figure 6: Latency breakdown on GPUs (Instant-NGP/Fox dataset).
+                                                                                                                                                leading to frequent off-chip memory accesses.
+   The results show that ENC and MLP are the major performance                                                                                  Observation II: Serialized execution of rendering pipeline. As
+bottlenecks among the operations. Note that Feature Computation                                                                                 previously discussed, two major operations that spend the most
+(MLP) takes less than half of the rendering time, which is quite                                                                                of the rendering time are hash encodings (ENC) and feature com-
+different from the original NeRF-based models where MLP com-                                                                                    putation (MLP). In the execution flow with the multi-resolution
+putation dominates the overall rendering time. At the same time,                                                                                hash encoding, these two main operations are serialized in execu-
+Hash Encoding (ENC, which includes hash table lookups and some                                                                                  tion although they have different compute and memory require-
+5 Ray compaction is the process to compact the rays into a dense data structure after                                                           ments; ENC is memory bandwidth-intensive, whereas MLP is more
+the ERT.                                                                                                                                        compute-intensive.
+ISCA ’23, June 17–21, 2023, Orlando, FL, USA                                                                                                                                                                                 J. Lee, K. Choi, J. Lee, S. Lee, J. Whangbo, and J. Sim
+
+
+                    10000                                                                                                50
+                                                                                                                                                                                                                                                              Hash Table
+                    8000                                                                                                 40
+                                                                                                                                                                                                                             Subgrid 1
+                                                                                                                                                                                                                                                               Subtable 0
+  Avg. # Accesses
+
+
+
+
+                                                                                                       Avg. # Accesses
+
+
+
+
+                                                                                                                                                                                                                                                    Hashing
+                    6000                                                                                                 30                                                                                                                                    Subtable 1
+
+                    4000                                                                                                 20                                                                                                                                    Subtable 2
+
+                    2000                                                                                                 10
+
+
+
+
+                                                                                                                                                                                                                                                                   …
+                       0                                                                                                  0
+                            0
+                                10
+                                     20
+                                          30
+                                               40
+                                                    50
+                                                         60
+                                                               70
+                                                                      80
+                                                                             90
+                                                                                     100
+                                                                                           110
+                                                                                                 120
+
+
+
+
+                                                                                                                              0
+                                                                                                                                  10
+                                                                                                                                        20
+                                                                                                                                             30
+                                                                                                                                                  40
+                                                                                                                                                       50
+                                                                                                                                                            60
+                                                                                                                                                                 70
+                                                                                                                                                                      80
+                                                                                                                                                                           90
+                                                                                                                                                                                100
+                                                                                                                                                                                      110
+                                                                                                                                                                                            120
+                                           (a) Level 1                                                                                         (b) Level 13                                                                                                    Subtable 5
+
+
+
+
+                                                                                                                                                                                                                                          Hashing
+                                                                                                                                                                                                                                                               Subtable 6
+Figure 7: Average number of accesses to hash entry groups. For clar-                                                                                                                                                                                           Subtable7
+ity, hash entries are sequentially grouped as the number of bins (bin                                                                                                                                        Subgrid 6
+size: 𝐿1=112, 𝐿13=4096) starting from entry 0 (Fox/Iteration 0).
+                                                                                                                                                                                                                      Figure 9: Restricted hashing.
+Ray Samples                                                          Features                                                     RGBa
+ (𝑥! , 𝑦! , 𝑧! , 𝜃! , 𝜙! )                  Input                       Feat0
+                                                                                                  MLP
+ (𝑥" , 𝑦" , 𝑧" , 𝜃" , 𝜙" )                Encoding                      Feat1                                                                                                                     the original flow that both ENC and MLP contribute to the crit-
+             Batch0
+                                                         Ray Samples                                                              Features                                  RGBa
+                                                                                                                                                                                                  ical path latency. However, NeuRex breaks the serialization and
+                                                         (𝑥# , 𝑦# , 𝑧# , 𝜃# , 𝜙# )             Input                                   Feat2
+                                                                                                                                                        MLP
+                                                                                                                                                                                                  executes them in parallel by processing the input positions at the
+                                                         (𝑥$ , 𝑦$ , 𝑧$ , 𝜃$ , 𝜙$ )           Encoding                                  Feat3
+                                                                                                                                                                                                  granularity of a set of positions, which we refer to as a batch. For
+                                                              Batch1
+                                                                                                                                                                                                  instance, we first load a batch of input positions (𝐵) and perform
+                                                                                                                                                                                        Time
+                                                                                                                                                                                                  multi-resolution hash encodings for the batch. We process the batch
+                                           Figure 8: Execution pipeline in NeuRex.
+                                                                                                                                                                                                  level by level to exploit the locality of hash entries within a batch.
+                                                                                                                                                                                                  Once the ENC is done, we obtain a 𝐵 × 32 partial input feature
+   Note that because the Npoint ×32 input feature matrix is con-
+                                                                                                                                                                                                  matrix, which we can feed into the MLP. Then, while the previous
+structed level by level (i.e., column-wise), we cannot perform MLP
+                                                                                                                                                                                                  batch goes through the FC layers, we fetch a new batch and perform
+computation for the rest of the pipeline until we finish hash table
+                                                                                                                                                                                                  the ENC operation. By doing so, NeuRex better utilizes the compute
+lookups for the finest level (𝐿=15). Ideally, if we overlap the execu-
+                                                                                                                                                                                                  units and memory bandwidth.
+tion of ENC and MLP in parallel, we can speed up the rendering
+pipeline. NeuRex enables overlapping the executions of these two
+operations and also better utilizes hardware resources by making                                                                                                                                  4.2    Restricted Hashing
+changes in the execution flow with algorithmic optimizations and                                                                                                                                  We propose a hardware-friendly multi-resolution hash encoding,
+supporting hardware.                                                                                                                                                                              which effectively enables the NeuRex execution flow. The key idea
+                                                                                                                                                                                                  of our enhancement is to partition the input coordinate grid into
+Observation III: Difference in access characteristics across dif-
+                                                                                                                                                                                                  several subgrids, each of which owns a portion of a large hash table
+ferent levels of hash tables. Figure 7 shows the distribution of
+                                                                                                                                                                                                  for each level. We then arrange the processing of input points in a
+hash entry accesses for the coarse level (𝐿=1) and fine level (𝐿=13)
+                                                                                                                                                                                                  way that we finish processing a subgrid for all resolutions before
+tables. For the resolution levels at which a hash collision does not
+                                                                                                                                                                                                  processing another. In this way, we effectively restrict the hash table
+occur (e.g., 𝐿=1), a hash table entry is solely assigned to a single
+                                                                                                                                                                                                  access for the vertex feature lookups to a range of consecutive hash
+vertex point of the voxel grid. Also, there is a large number of
+                                                                                                                                                                                                  entries, rather than being randomly distributed across the table.
+sample positions in a voxel, which share the same vertex points.
+                                                                                                                                                                                                     This provides us with two key benefits. First, it allows the ac-
+Consequently, the accesses are somewhat localized to a few entries,
+                                                                                                                                                                                                  celeration devices with small on-chip memories (e.g., mobile/edge
+and the number of accesses for each entry is high. On the other
+                                                                                                                                                                                                  devices or low-end GPUs) to avoid the costly off-chip memory
+hand, for finer resolution levels (e.g., 𝐿=13), the accesses are more
+                                                                                                                                                                                                  accesses and perform encoding lookups more efficiently by load-
+evenly (and randomly) distributed across the hash entries, while
+                                                                                                                                                                                                  ing only a portion of the hash table into the on-chip memory at a
+the number of accesses for each entry is quite low. Based on this
+                                                                                                                                                                                                  time, thus enabling performance portability of multi-resolution hash
+observation, NeuRex features two different types of specialized on-
+                                                                                                                                                                                                  encodings across a range of compute platforms. Second, it offers
+chip memories to effectively serve the encoding lookups of coarser
+                                                                                                                                                                                                  opportunities for a batch of inputs within a subgrid to efficiently
+and finer levels.
+                                                                                                                                                                                                  perform hash encodings in parallel with the MLP computation of
+                                                                                                                                                                                                  another batch.
+4                     NEUREX: NEURAL GRAPHICS ENGINE
+                                                                                                                                                                                                     Figure 9 shows the restricted hashing mechanism, in which we
+In this section, we present NeuRex, a neural graphics engine that                                                                                                                                 arrange the input positions that belong to the same subgrid to
+leverages the insights from Section 3 to efficiently perform neural                                                                                                                               be clustered in a set of batches. By doing so, the region of the
+graphics computation.                                                                                                                                                                             hash table accessed from the same batch is restricted to a small
+                                                                                                                                                                                                  subset of the table, which we refer to as a subtable. In the figure,
+4.1                         Execution Flow in NeuRex                                                                                                                                              for example, the sample positions in Subgrid 6 only access the hash
+Figure 8 shows the high-level execution flow of the neural render-                                                                                                                                entries in Subtable 6, while being indexed by a new hash function.
+ing pipeline in NeuRex. The main difference between the NeuRex                                                                                                                                    When we divide the 3D scene (i.e., 3D grid) into 𝑅 subdivisions for
+execution flow and the original one is the pipelining and overlapping                                                                                                                             each dimension, the number of subgrids becomes 𝑅 3 , and the hash
+of the hash encoding (ENC) and MLP operations. For example, as                                                                                                                                    table is also equally divided into 𝑅 3 subtables. We refer to 𝑅 as the
+previously discussed, these two main operations are serialized in                                                                                                                                 subgrid resolution (sugbrid_res). Then, for each input position (p),
+NeuRex: A Case for Neural Rendering Acceleration                                                                                                    ISCA ’23, June 17–21, 2023, Orlando, FL, USA
+
+
+                                                                                                              𝑧            (3, 5, 3)                           𝑧
+                                     Position
+                                      Buffer
+                                                               …
+                                                               Index Generation
+                                                                     Unit
+                                                                                                       (3, 4, 3)
+                                                                                                                                       (4, 5, 3)
+
+
+                                     Request                Encoding Lookup Unit                                   (4, 4, 3)       𝑦                                          𝑦
+                                      Buffer
+                                                        Grid Cache     Subgrid Buffer          Base Coordinate:           (3, 5, 2)
+                                                                                                   (3, 4, 2)
+                                                                                                                                        (4, 5, 2)
+                                     Encoding
+                                     Engine                    … Compute
+                                                                  Interpolation
+                                                                           Unit
+                                                                                                                   (4, 4, 2)
+                                                                                                                               𝑥                                          𝑥
+         Off-Chip Memory
+
+
+
+
+                                                                                                             (a) Vertex coordinates                           (b) Interpolation weights
+                                      TCE                       Weight Buffer                               Figure 11: The process of trilinear interpolation.
+
+                                                                     …                        vector is computed by the Interpolation Compute Unit (ICU) and is
+                                                                                              sent to the input buffer of the TCE. The TCE performs MLP using
+                                                            …
+
+
+                                      Input
+                                                                                              the systolic array. Because the weights are small in size and are
+                                                                  Systolic
+
+
+                                                                                   …
+                                                       …
+
+
+
+
+                                      Buffer                       Array                      heavily reused, we choose a TPU-like weight stationary dataflow for
+                                                                                              the systolic array. In the following, we describe the key hardware
+                                                                             …
+
+                                                                     …                        components of the encoding engine in detail.
+
+                                                                                              4.4       Index Generation Unit
+                                          Act.                  Output Buffer
+                                                                                              The Index Generation Unit (IGU) consists of 𝑁 compute units (64/8
+                                                                                              units in our NeuRex-Server/NeuRex-Edge designs) that perform
+                           Figure 10: Overview of NeuRex architecture.                        computation in parallel. The IGU is composed of three main parts:
+                                                                                              position scaling, hash index computation, and interpolation weight
+we can compute to which subgrid (subgrid_id) the input belongs                                computation.
+using Equation 3.                                                                                The IGU first scales up the input coordinate because it is in the
+                                          2
+                                                                                              bounding box in which it is normalized to the coordinate between 0
+                                                                                              and 1. Based on the resolution level, which corresponds to a specific
+                                          Õ
+                           subgrid_id =          ⌊pk · subgrid_res⌋ · subgrid_resk ,    (3)
+                                          k=0                                                 resolution, we scale up the input to the coordinate system of the
+where p = (p0, p1, p2 ) = (x, y, z) and x, y, z ∈ [0, 1).                                     target level. This can be done by simple floating-point multiply-
+    By using the subgrid index for a batch, we load the correspond-                           and-add operations. After scaling, we obtain two useful pieces
+ing subtable onto the on-chip buffer. This allows us to perform                               of information. The integer part of the coordinate indicates the
+encoding lookups solely from the on-chip memory without any fur-                              grid index, and the fractional part indicates the relative position of
+ther access to the off-chip memory. Note that the new hash index                              the point within its voxel. The grid index is used for locating the
+used for accessing the entries in the subtable can be computed us-                            neighbor vertices of the voxel for hashing, and the relative position
+ing Equation 2 with a minor modification for the modulo operation                             is used for computing interpolation weights for the vertices.
+(i.e., using the subtable size instead of the table size).                                       Given the grid index, which corresponds to the base coordinate of
+                                                                                              the voxel, the IGU computes all the coordinates of neighbor vertices
+4.3     Architecture Overview                                                                 by adding one or zero to each coordinate value. Figure 11(a) shows
+Figure 10 shows the overview of our accelerator design, which                                 how to obtain the coordinates of seven neighbor vertices when the
+consists of two main modules: Encoding Engine (EE) and Tensor                                 base coordinate is (3, 4, 2). These coordinates (including the base)
+Compute Engine (TCE). The TCE module is similar to the con-                                   are the inputs of the hash function in Equation 2. Each Hash Index
+ventional DNN accelerators that employ a TPU [24]-like systolic                               Compute Unit in the IGU is responsible for computing the hash
+array with memory buffers for data movement. NeuRex minimally                                 indexes of the vertices in parallel. In our design, the compute units
+extends the existing DNN accelerator design with a dedicated hard-                            are fully pipelined, and the IGU produces 𝑁 × 8 hash indexes per
+ware module (EE) that efficiently performs multi-resolution hash                              cycle.
+encodings.                                                                                       To aggregate the features of the vertices, we need to compute an
+    At a high level, the encoding engine is responsible for performing                        interpolation weight for each vertex. The weight is determined by
+hash table lookups and interpolating the feature vectors obtained                             the distance from the input position to each vertex of the voxel, as
+from the lookups to produce an input feature vector. To do so, a                              shown in Figure 11(b). Note that a larger weight is assigned to the
+batch of input positions is first streamed into the position buffer from                      vertex that is closer to the sample position, which implies that the
+the off-chip memory. The positions in each batch are processed for                            feature vector of the vertex is more representative of the position.
+all 𝐿 levels of encoding lookups before we process the next batch.                            Equation 4 shows how to compute the interpolation weight. The
+    The Index Generation Unit (IGU) in the EE generates the hash                              Interpolation Weight Compute Unit in the IGU performs this opera-
+indexes and interpolation weights of the neighbor vertices for each                           tion with multipliers and subtractors, and the IGU also produces
+input position. With the hash indexes, the Encoding Lookup Unit                               𝑁 × 8 weights per cycle. Note that the hash index and interpolation
+(ELU) fetches the encoded vertex features from the on-chip buffers                            weight compute units are not shown in Figure 10 for brevity.
+(Grid Cache or Subgrid Buffer). After that, the final input feature                                      winterp = (1 − |xs − xv |) · (1 − |ys − yv |) · (1 − |zs − zv |),                   (4)
+ISCA ’23, June 17–21, 2023, Orlando, FL, USA                                                                       J. Lee, K. Choi, J. Lee, S. Lee, J. Whangbo, and J. Sim
+
+
+      Valid             18-bit MSBs of 𝑔𝑖𝑑         4-bit 𝑙𝑒𝑣𝑒𝑙 𝐼𝐷 3-bit filled counter   Note that the subgrid buffer contains all the hash entries required
+                                 …                                                       to process the input positions for a resolution level in a subgrid;
+       26 bits total for GC tag entry
+                                                                                         thus, there is no further off-chip memory access until we move on
+                                                                                         to another level unlike the GC. As in the grid cache, the subgrid
+        GC Tag Bank                  GC Data Bank (8×4B hash table entries)              buffer is also heavily-banked to sustain high memory bandwidth
+                                                                   …
+                                                                                         (32 banks in our implementation). Unlike the grid cache, however,
+               tag 0             entry 0     entry 1   entry 2              entry 7
+                                                                                         each bank of the subgrid buffer provides a single hash entry (i.e., 4
+               tag 1             entry 0     entry 1   entry 2     …        entry 7      bytes) for a lookup. So, a bank conflict occurs when any of the eight
+                …
+
+
+
+
+                                                          …
+                                                                                         vertex lookups falls onto the same bank. For 32 banks, however, we
+              tag 𝐾-1            entry 0     entry 1   entry 2     …        entry 7      empirically find that the overall rendering time does not noticeably
+                                                                                         increase as the hash encoding operation is overlapped with MLP
+                       Figure 12: Grid cache (GC) structure.
+                                                                                         computation in NeuRex. We use the subgrid buffer from Level 8
+where (xv, yv, zv ) and (xs, ys, zs ) are the vertex and scaled position                 for our evaluation as it shows the best overall rendering time. Note
+coordinates, respectively.                                                               that NeuRex supports an arbitrary value if needed.
+
+4.5     Encoding Lookup Unit                                                             4.6    Interpolation Compute Unit
+The Encoding Lookup Unit (ELU) is responsible for performing                             Once the encoding lookups are finished, we aggregate the vertex
+hash table lookups of the vertex points. Note that for a sample input                    features from the lookups with the corresponding weights. The
+point, we fetch 8 × 𝐿 hash table entries. As we discuss in Section 3.4,                  Interpolation Compute Unit (ICU) performs this operation in four
+we observe that the access characteristics of hash tables are different                  stages. In the first stage, the eight features are multiplied by the
+across the resolution levels. We can divide the resolution levels into                   corresponding weights. The other three stages are consumed by
+two categories: coarse and fine levels. For coarse levels, the accesses                  an adder tree. The ICU has 64/8 fully pipelined compute units (in
+show high locality to a relatively small number of hash entries. In                      NeuRex-Server and NeuRex-Edge, respectively), and it sends the
+contrast, the accesses to the finer levels are evenly distributed across                 aggregated feature vectors to the input buffer in the TCE.
+the entries in the hash table. Based on the observation, we deal
+with two types of hash table lookups in different ways. We use a                         4.7    Tensor Compute Engine
+grid cache for coarse levels and a subgrid buffer for fine levels.                       The MLP in neural rendering comprises only a few small FC layers.
+Grid Cache. For coarse resolution levels (e.g., 𝐿=0,1,2,...), the num-                   The number of sampled inputs, on the other hand, is orders of
+ber of input positions that are included in the same voxel is large                      magnitude larger than the width of FC layers. Small MLP weights
+enough. At the same time, the granularity of hash table access for                       and a large input dimension lead to a huge opportunity for layer
+an input position is not a single hash entry but is a set of entries for                 fusion, as observed in other work [3]. We also adopt fusion-based
+eight vertices of the voxel. We exploit the observation by coalescing                    MLP computation for our accelerator design. Given a batch of input
+the eight entries into a single data block with additional information                   features, the Tensor Compute Engine (TCE) works on a series of
+about the voxel grid; i.e., level index (lid) and grid index (gid). Then,                FC and activation layers and generates the final outputs without
+for an input position, we fetch the coalesced eight vertex features                      storing the intermediate features back to the off-chip memory. The
+using its gid with a single access.                                                      TCE has large enough input and output buffers to store them.
+    Figure 12 shows the grid cache (GC) structure. The GC consists of
+heavily-banked SRAMs, each with an independent address decoding                          5     EXPERIMENTAL METHODOLOGY
+logic, in order to sustain high on-chip memory bandwidth. Each                           Hardware Implementation. We implement the hardware compo-
+data block in the GC contains the feature vectors of eight vertices                      nents of NeuRex in RTL using SystemVerilog. The functionality of
+for a voxel (8×4B=32B). The gid computed by the IGU is used to                           each component is verified via RTL simulations with synthetic data.
+index into the GC. The tag contains four fields: a 1-bit valid, 18-bit                   We synthesize the NeuRex components using a commercial 28nm
+msbs of gid, a 4-bit level index lid, and a 3-bit counter. The GC is                     technology node with Synopsys Design Compiler [53]. On-chip
+a direct-mapped cache style buffer, and the lsbs of gid are used to                      SRAMs are also generated from a commercial memory compiler
+index the bank and data block.                                                           with the same technology. The position/subgrid buffers in the EE
+    Note that if the GC does not contain the vertex features for a gid                   and the input/output buffers in the TCE are double-buffered. The
+request, it sends the memory requests for eight vertex entries to off-                   subgrid buffer is sized at 128KB with 32 banks for the case where
+chip memory while recording the request addresses and metadata in                        the per-level table size becomes significantly larger in the future,
+the request buffer. When the data is returned from off-chip memory                       but it can be as small as 32KB for our evaluation. The grid cache is
+one by one, we find the matching address in the request buffer and                       sized at 64KB with 32 banks, and the request buffer can handle up
+fill the data block entry while incrementing the counter. Note that                      to 64 addresses and 64 merged requests per address. We design our
+it generates multiple 64B requests, and we only take 4B out of 64B                       architecture to run at a 1GHz clock frequency for most components
+for each returned data. The data block becomes only valid once all                       except for the on-chip memory that runs double-pumped at 2GHz
+the eight entries are filled from the off-chip memory.                                   to provide high on-chip memory bandwidth, as similar to [50].
+Subgrid Buffer. For finer levels (e.g., 𝐿=...,13,14,15), we load each                       To evaluate the system-level performance of NeuRex with off-
+partitioned hash table into the subgrid buffer for encoding lookups.                     chip memory, we also implement a cycle-level simulator that models
+NeuRex: A Case for Neural Rendering Acceleration                                                                                         ISCA ’23, June 17–21, 2023, Orlando, FL, USA
+
+
+                       Table 3: Evaluated workloads.                                            4                                                     12
+
+                                                                                                                                                      10
+                                                                                                3
+        Task                  Dataset             Scene (Resolution)       Type                                                                        8
+
+
+
+
+                                                                                      Speedup
+
+
+
+
+                                                                                                                                            Speedup
+                        Synthetic-NeRF [35]         Mic (800×800)        Synthetic              2                                                      6
+
+                        Synthetic-NSVF [30]        Palace (800×800)      Synthetic                                                                     4
+        NeRF                                                                                    1
+                                                                                                                                                       2
+                          BlendedMVS [57]         Fountain (768×576)     Real world
+                                                                                                0                                                      0
+                        Tanks&Temples [27]        Family (1920×1080)     Real world                 Mic   Palace Fountain Family   Fox                     Mic   Palace Fountain Family   Fox
+
+                          Instant-NGP [37]         Fox (1080×1920)       Real world                        (a) NeuRex-Server                                      (b) NeuRex-Edge
+
+                                                  Bunny (1920×1920)          -
+     Neural SDF        The Stanford Models [1]
+                                                 Armadillo (1920×1920)       -                              Figure 13: Speedup of NeuRex over GPUs.
+                                                  Tokyo (6144×2324)          -                  8                                                      4
+ Image Approximation              -
+                                                  Albert (3250×4333)         -
+                                                                                                6                                                      3
+
+
+
+
+                                                                                      Speedup
+
+
+
+
+                                                                                                                                            Speedup
+                                                                                                4                                                      2
+the NeuRex architecture with Ramulator [26] for DRAM timing.
+                                                                                                2                                                      1
+We collect position traces by running the workloads on GPUs and
+                                                                                                            NeuRex-Server   NeuRex-Edge                            NeuRex-Server   NeuRex-Edge
+use them as input for the simulator. The timing parameters of the                               0                                                      0
+                                                                                                    Mic   Palace Fountain Family   Fox                     Mic   Palace Fountain Family   Fox
+simulator are determined based on the RTL synthesis results. We
+                                                                                                               (a) ENC                                                  (b) MLP
+measure the accelerator performance using the cycles reported by
+the simulator. The simulator also outputs the number of SRAM                          Figure 14: Speedup on hash encodings (ENC) and feature computa-
+accesses, which we use to obtain the energy numbers of on-chip                        tion (MLP).
+buffers. The energy numbers of the off-chip memory are computed
+using the DRAM statistics from the memory simulator [26].                             6 EVALUATION
+   We evaluate two variants of NeuRex: NeuRex-Edge and NeuRex-
+Server. NeuRex-Edge is a design point when there are strict area                      6.1 NeuRex Performance
+and power constraints, which is a typical case for mobile and edge                    Figure 13 shows the performance of NeuRex over RTX 3070 and
+computing platforms. NeuRex-Server is a scaled-up architecture                        Xavier NX. On average, NeuRex-Server and NeuRex-Edge achieve
+for high-end computing platforms. The batch size is set to 1024                       2.88× and 9.17× speedups over the baseline GPUs. It is worth noting
+and 8192 for NeuRex-Edge and NeuRex-Server. We configure the                          that NeuRex-Edge exhibits a higher speedup over the baseline than
+off-chip memory of NeuRex-Edge as LPDDR4-3200 [4] and ana-                            NeuRex-Server. This is because irregular accesses to large encoding
+lyze the statistics using DRAMPower [9, 34]. HBM2 [5] is used for                     tables quickly become a performance bottleneck in the GPU execu-
+NeuRex-Server with the energy model from FGDRAM [44]. We use                          tion when the GPU has a small on-chip memory capacity (e.g., a
+a multiple of a 32 × 32 systolic array instead of using a larger one;                 256KB L2 cache in Xavier NX). By employing restricted hashing and
+this improves the utilization of the compute units. The TCE consists                  loading a portion of the encoding table at a time, NeuRex enhances
+of one and sixteen 32 × 32 systolic arrays for the NeuRex-Edge and                    the performance portability of the multi-resolution hash encoding.6
+NeuRex-Server, respectively. Section 6.5 discusses the hardware                          Figure 14 compares the performance of NeuRex and GPUs for
+configurations and energy efficiency of two variants of NeuRex.                       two key operations in modern neural renderings: hash encodings
+                                                                                      (ENC) and feature computation (MLP). Note that the speedup shown
+Baselines. We compare our accelerator designs with two different
+                                                                                      in Figure 14(a) comes from the restricted hashing algorithm and spe-
+classes of computing platforms. We choose NVIDIA Jetson Xavier
+                                                                                      cialized on-chip memory design. Figure 14(b) shows that NeuRex
+NX [42] as a representative of edge devices. Also, RTX 3070 [43] is
+                                                                                      performs MLP computation faster despite the lower peak compute
+selected as high-end consumer-level rendering acceleration hard-
+                                                                                      throughput compared to the GPUs. This is because the GPU ten-
+ware. We use and modify the author-released code that includes
+                                                                                      sor cores are underutilized due to small FC layers, whereas the
+heavily-optimized CUDA kernels (e.g., fused MLP and other opti-
+                                                                                      TCE in NeuRex achieves higher compute utilization. Also, the over-
+mizations for better tensor core utilization). We measure the perfor-
+                                                                                      all speedup of NeuRex (Figure 13) is higher than the individual
+mance and power consumption of each GPU by using the built-in
+                                                                                      speedups for ENC and MLP because these two operations are seri-
+hardware counters. Note that RTX 3070 is fabricated using the Sam-
+                                                                                      alized in the original execution flow, whereas NeuRex enables them
+sung 8nm process node, which is a couple of generations advanced
+                                                                                      to be overlapped thanks to the restricted hashing.
+compared to the technology node used for NeuRex (28nm).
+Workloads. Table 3 shows the workloads that we use to evaluate                        6.2           Rendering Quality
+our design. We carefully select a range of synthetic and real-world
+                                                                                      Restricted hashing slightly modifies the multi-resolution hash en-
+datasets from several prior works to cover the scenes with varying
+                                                                                      coding to make it hardware-friendly. To demonstrate that our pro-
+resolutions and complexity. The number of initial rays is propor-
+                                                                                      posed scheme does not degrade the quality of rendered images, we
+tional to the resolution of a rendering image, while the number of
+                                                                                      compare the average PSNR between the original hash encoding
+ray sampling iterations depends on how realistic the scene is. In
+                                                                                      primitive (Org-Hash) and the restricted one (Ours). For each scene,
+addition to NeRF, we also evaluate our design with other graphics
+                                                                                      we obtain PSNRs from 10 different camera views and average them
+tasks, such as neural signed distance functions (SDF) and 2D image
+                                                                                      to generalize the result.
+approximation, to demonstrate the general applicability of the para-
+metric encoding-based neural scene representations in Section 6.6.                    6 We use 64 subgrids for restricted hashing in our evaluation.
+ISCA ’23, June 17–21, 2023, Orlando, FL, USA                                                                                                 J. Lee, K. Choi, J. Lee, S. Lee, J. Whangbo, and J. Sim
+
+
+            40                                                                                           5
+                                                                                                                Baseline       GC     GC + RH
+                                                                                                         4
+            30
+PSNR (dB)
+
+
+
+
+                                                                                               Speedup
+                                                                                                         3
+            20
+                                                                                                         2
+            10
+                                                                                                         1
+                                                       Org-Hash     Ours-DT     Ours-LT
+             0                                                                                           0
+                    Mic          Palace         Fountain        Family           Fox                              Mic               Palace           Fountain                  Family               Fox
+
+                                                                                               Figure 17: Source of gain. Speedup of variants isolating each opti-
+Figure 15: Rendering quality (PSNR) of the original hash encoding                              mization in NeuRex.
+(Org-Hash) and restricted hashing (Ours).                                                                3.5                                                     3.5
+                                                                                                         3.0                                                     3.0
+
+
+
+
+                                                                                                                                                       Speedup
+                                                                                               Speedup
+                                                                                                         2.5                                                     2.5
+                                                                                                         2.0                                                     2.0
+                                                                                                         1.5                                                     1.5
+                                                                                                         1.0                                                     1.0
+                                                                                                               2048     4096   8192   16384 32768                      16KB    32KB     64KB 128KB 256KB
+                                                                                                                         (a) Batch size                                       (b) Grid cache size
+
+                                                                                                             Figure 18: Speedup across the batch and grid cache sizes.
+
+            Reference     Org-Hash (PSNR: 38.18) Ours-DT (PSNR: 36.53) Ours-LT (PSNR: 37.70)
+                                                                                               which is the size of a single hash table, to model a conventional
+                                                                                               cache in GPU. All the configurations are adopted for NeuRex-Server.
+Figure 16: Rendered images. Models are trained for 31K iterations.                                The speedup of GC over the baseline comes from utilizing the
+                                                                                               on-chip memory bandwidth more effectively than the conventional
+   Figure 15 shows that there is a negligible PSNR drop (0.7%∼3.9%)                            cache for coarse levels. In the baseline, we need to access the cache
+over the baseline when restricted hashing is applied to the default                            eight times to obtain all the vertex features for a single sample
+table size in [37] (Ours-DT; 2MB per level). Note that Ours-DT is                              point. Also, each access only takes 4B out of a 64B cacheline, which
+already superior to the original NeRF-based models that do not                                 leads to a waste of on-chip bandwidth. In contrast, the grid cache
+use hash encodings. As discussed in Section 4, restricted hashing                              provides the coalesced eight vertex features in a single access, thus
+limits each batch to accessing input encodings only within a single                            effectively serving the hash encoding lookups with a small cache
+subgrid buffer. Consequently, increasing the hash table size has less                          capacity for coarse levels. By maximizing the hash entry reuse in
+impact on performance as only a portion of the table needs to be                               the subgrid buffer for fine levels, NeuRex (GC+RH) further improves
+loaded on-chip at a time. Based on this observation, we configure                              performance over the baseline with GC.
+our model with a 4× larger hash table (Ours-LT; 8MB per level) to
+further improve PSNRs without compromising performance. The                                    6.4             Sensitivity Study
+results show that Ours-LT leads to only a minor 1.1% decrease
+                                                                                               This section evaluates how NeuRex performance varies with differ-
+in PSNR for the worst case, and for several other scenes, it even
+                                                                                               ent hardware resource configurations. In particular, we focus on
+produces higher PSNRs than Org-Hash.
+                                                                                               two configurations: batch size and grid cache size. Figure 18 shows
+   Figure 16 compares the reference image to the rendered ones us-
+                                                                                               the speedup over the GPU across the batch and grid cache sizes.
+ing the original primitive (Org-Hash) and restricted hashing (Ours)
+                                                                                               We show the results of NeuRex-Server only with the Fox dataset as
+for the scene that exhibits the highest PSNR drop. We see that Ours-
+                                                                                               the general trend holds.
+DT/LT does not degrade the rendering quality, and interestingly,
+in some parts, the images produced using restricted hashing look                               Batch Size. The batch size affects the performance because a larger
+closer to the reference image than Org-Hash even though the PSNRs                              batch can increase the temporal locality of the grid cache and im-
+are lower. This could be because some parts experience fewer hash                              prove the compute utilization of TCE. However, a larger batch leads
+collisions than the case with a single hash table in Org-Hash. Note                            to an increase in the size of some on-chip buffers, such as the po-
+that the off-chip memory is large enough to accommodate the in-                                sition buffer. We increase the batch size from 2048 to 32768 and
+creased hash tables, which makes restricted hashing an attractive                              observe that the speedup does not noticeably increase after a size of
+solution for edge and mobile platforms.                                                        8192. This is because the streaming latency from off-chip memory
+                                                                                               to fill the double-buffered subgrid buffer is mostly hidden by the on-
+6.3              Source of Performance Gain                                                    chip memory access latency from encoding lookups for fine levels.
+Figure 17 shows the speedup from each component in NeuRex. We                                  We choose a batch size of 8192 and 1024 to balance the performance
+can divide NeuRex into two key components: grid cache (GC) and                                 and area overhead for NeuRex-Server and NeuRex-Edge.
+restricted hashing (RH) with the subgrid buffer. By accumulating                               Grid Cache Size. We observe that a small grid cache is sufficient
+each optimization from the baseline, we evaluate three variants of                             to achieve the full benefit of the grid cache. We perform a sweep
+NeuRex: Baseline, GC, and GC+RH. The baseline is the batch-based                               of grid cache sizes from 16KB to 256KB and see that the speedup
+execution model with no optimization. Note that GC and RH are                                  noticeably increases until 64KB but not much for larger caches. The
+exclusively used for encoding lookups of the coarse and fine levels,                           grid cache size is closely related to the number of unique voxels in
+respectively. The level threshold is set to eight. Meanwhile, for the                          coarse levels because each cacheline has the eight vertex features
+variants that do not employ the GC or RH, we use a 2MB cache,                                  of a voxel. Since most input batches belong to less than 2048 unique
+NeuRex: A Case for Neural Rendering Acceleration                                                                                                                                      ISCA ’23, June 17–21, 2023, Orlando, FL, USA
+
+
+Table 4: Area and power of NeuRex (NeuRex-Server / NeuRex-Edge).                                                                       1.5                                                          1.5
+                                                                                                                                                Baseline     RH    RH+PP                                    Baseline      RH    RH+PP
+
+     Component                                    Remarks                                    Area [mm2 ]      Power [W]                1.0                                                          1.0
+
+
+
+
+                                                                                                                             Speedup
+
+
+
+
+                                                                                                                                                                                         Speedup
+     Systolic Array                               16×(32×32) / 1×(32×32)                       7.68 / 0.48     3.04 / 0.19
+     Weight Buffer                                20KB / 20KB                                  0.04 / 0.04     0.02 / 0.02             0.5                                                          0.5
+     Input Buffer                                 2×1MB / 2×128KB                              3.39 / 0.57     0.36 / 0.26
+     Output Buffer                                2×1MB / 2×128KB                              3.39 / 0.57     0.36 / 0.26             0.0                                                          0.0
+     Total TCE                                                                               14.50 / 1.66     3.78 / 0.73                      Mic   Palace Fountain Family     Fox                       Mic     Palace Fountain Family     Fox
+
+     Position Buffer                              2×96KB / 2×12KB                              0.43 / 0.05     0.20 / 0.02                                 (a) RTX 3070                                                 (b) Xavier NX
+     Grid Cache                                   64KB / 64KB                                  0.14 / 0.14     0.06 / 0.06
+     Subgrid Buffer                               2×128KB / 2×128KB                            0.57 / 0.57     0.26 / 0.26                    Figure 20: Restricted hashing and pipelining on GPUs.
+     Request Buffer                               16KB / 8KB                                   0.03 / 0.01     0.08 / 0.04
+                                                                                                                                       2.0                                                          4
+     Index Generation Unit                        64 units / 8 units                           4.80 / 0.60     1.34 / 0.16                                                                                      27.96      28.60
+     Interpolation Compute Unit                   64 units / 8 units                           0.90 / 0.11     0.38 / 0.05             1.5                                                          3
+
+
+
+
+                                                                                                                             Speedup
+
+
+
+
+                                                                                                                                                                                          Speedup
+     Total EE                                                                                 6.87 / 1.48     2.32 / 0.58              1.0                                                          2
+     Total                                                                                   21.37 / 3.14     6.10 / 1.31              0.5                                                          1
+
+                                                                                                                                       0.0                                                          0
+                                                                                                                                               Bunny Armadillo     Tokyo      Albert                      Bunny    Armadillo    Tokyo      Albert
+                    25                                                            25
+                                                                                                                                                     SDF              Gigapixel                                 SDF                Gigapixel
+Energy Efficiency
+
+
+
+
+                                                              Energy Efficiency
+
+
+
+
+                    20                                                            20
+                                                                                                                                                     (a) NeuRex-Server                                            (b) NeuRex-Edge
+                    15                                                            15
+
+                    10                                                            10                                                         Figure 21: Speedup on other graphics tasks beyond NeRF.
+                    5                                                              5
+                                                                                                                             core utilization for each MLP. Overall, restricted hashing improves
+                    0                                                              0
+                         Mic   Palace Fountain Family   Fox                            Mic   Palace Fountain Family   Fox    performance, but the increase is limited. RTX 3070 already has
+                                (a) NeuRex-Server                                             (b) NeuRex-Edge                a large L2 cache, so restricted hashing does not help reduce off-
+                         Figure 19: Energy efficiency of NeuRex over GPUs.                                                   chip memory accesses. Furthermore, due to the same reason for
+                                                                                                                             the edge GPU, the core utilization becomes lower than the case
+voxels in coarse levels, we can cover most of the voxels with a small                                                        without restricted hashing. Thus, restricted hashing in fact reduces
+grid cache. We use a 64KB grid cache in our design.                                                                          performance for most of the scenes except for the Fox dataset.
+                                                                                                                                RH+PP refers to the case where we also apply software pipelin-
+6.5                      Area and Energy Efficiency                                                                          ing on top of restricted hashing. Although CUDA now supports
+Table 4 shows the area and power numbers of NeuRex, which                                                                    concurrent kernel execution, we have observed that it is challenging
+indicate that NeuRex can be implemented with small areas and                                                                 to nicely overlap the execution of complex and optimized kernels,
+powers. Note that we implement a TPU-like TCE, but one can                                                                   as also noted in prior work [60], unlike the case of overlapping the
+choose other designs. For the encoding engine, which is the key                                                              kernel execution with data transfers (e.g., cudaMemcpyAsync). This
+component in NeuRex, the largest area overhead is the IGU as it                                                              is because hardware resources (e.g., registers, shared memory) are
+consists of multiple FP and integer MAC units. However, the areas                                                            limited, and the CUDA runtime does not effectively schedule thread
+of NeuRex-Server and NeuRex-Edge are both negligible compared                                                                blocks from multiple complex kernels; users have limited control
+to the baseline GPU SoCs (i.e., 392mm2 for RTX 3070 and 350mm2                                                               over it. We observe that only small portions of execution between
+for Xavier NX).                                                                                                              the hash encoding and MLP kernels can be overlapped. On the other
+   Figure 19 shows the energy comparisons between NeuRex and                                                                 hand, the overheads to enable overlapping (e.g., synchronization)
+GPUs in which NeuRex shows significantly higher energy efficiency                                                            are higher, so RH+PP even decreases the performance compared to
+than RTX 3070 and Xavier NX. Note that NeuRex uses a 28nm tech-                                                              RH. We also observe that the overlapped portion can be increased
+nology node, whereas the GPUs are fabricated with more advanced                                                              by reducing the resource usage of each kernel, but this leads to an
+nodes (8nm/12nm for RTX 3070/Xavier NX). Therefore, instead of                                                               increase in execution time for each kernel.
+directly comparing the numbers, it is more appropriate to infer that                                                         Long-Term Viability of NeuRex. As discussed in Section 2.3,
+NeuRex would become even more attractive if it were fabricated                                                               Instant-NGP does not significantly alter the NeRF model architec-
+with more advanced technology.                                                                                               ture but introduces a simple change in the way the input positions
+                                                                                                                             are encoded by employing several learnable hash tables. This in-
+6.6                      Discussion                                                                                          put encoding approach bears some resemblance to the positional
+Restricted Hashing and Pipelining on GPUs. While restricted                                                                  encoding and word embedding used in Transformer-based mod-
+hashing (RH) and software pipelining (PP) can be applied to GPUs,                                                            els [7, 14, 56], which have now become essential elements in natural
+we observe that the GPUs do not benefit much from these. In Fig-                                                             language processing (NLP). Similarly, the hash encoding primitive
+ure 20, RH shows the case where we solely apply restricted hashing                                                           can be applied to other graphics workloads or tasks, such as neu-
+to the GPUs. For Xavier NX, restricted hashing helps reduce off-                                                             ral signed distance functions (SDF) [46] and image approximation
+chip memory accesses as we only load a portion of the hash table                                                             (Gigapixel). Figure 21 shows that NeuRex also helps improve perfor-
+for a subgrid to process on-chip. However, we now feed multiple                                                              mance for SDF and image approximation over GPUs. We envision
+smaller input matrices into the MLP, instead of a single large one,                                                          that this new input encoding technique will be widely adopted in
+for feature computation of all sampled points. This effectively in-                                                          the future whenever applicable, and NeuRex can help improve the
+creases the total execution time of feature computation due to lower                                                         performance of these workloads beyond NeRF.
+ISCA ’23, June 17–21, 2023, Orlando, FL, USA                                                                J. Lee, K. Choi, J. Lee, S. Lee, J. Whangbo, and J. Sim
+
+
+7    RELATED WORK                                                           REFERENCES
+Deep Learning for Graphics. Graphics applications are widely                 [1] 1994. The Stanford 3D Scanning Repository. https://graphics.stanford.edu/data/
+                                                                                 3Dscanrep/
+adopting deep learning approaches to improve their quality. One              [2] Jorge Albericio, Patrick Judd, Tayler Hetherington, Tor Aamodt, Natalie Enright
+of the recent works, NeRF [35], demonstrated promising results for               Jerger, and Andreas Moshovos. 2016. Cnvlutin: Ineffectual-Neuron-Free Deep
+                                                                                 Neural Network Computing. In ACM/IEEE 43rd Annual International Symposium
+volume renderings through a neural network that comprises a posi-                on Computer Architecture (ISCA).
+tional encoding and a large MLP. Subsequent studies [6, 30, 48, 58]          [3] Manoj Alwani, Han Chen, Michael Ferdman, and Peter Milder. 2016. Fused-
+improve on the NeRF work by focusing on the MLP. Although these                  Layer CNN Accelerators. In 49th Annual IEEE/ACM International Symposium on
+                                                                                 Microarchitecture (MICRO).
+works improve the training/rendering time or rendering quality,              [4] JEDEC Solid State Technology Association. 2014. JEDEC Standard JESD209-4:
+Instant-NGP [37] substantially outperforms other works by exploit-               Low Power Double Data Rate 4 (LPDDR4). JEDEC, Virginia, USA.
+ing the idea of multi-resolution hash encodings. NeuRex focuses              [5] JEDEC Solid State Technology Association. 2015. JEDEC Standard JESD235A:
+                                                                                 High Bandwidth Memory (HBM) DRAM. JEDEC, Virginia, USA.
+on the parametric encoding-based models that are captivating.                [6] Jonathan T. Barron, Ben Mildenhall, Matthew Tancik, Peter Hedman, Ricardo
+                                                                                 Martin-Brualla, and Pratul P. Srinivasan. 2021. Mip-NeRF: A Multiscale Repre-
+Domain-Specific Acceleration. Both hardware and software op-                     sentation for Anti-Aliasing Neural Radiance Fields. In IEEE/CVF International
+timization techniques have been developed for the traditional ray                Conference on Computer Vision (ICCV).
+tracing-based rendering pipeline [8, 49]. Commercial GPUs now                [7] Tom B. Brown, Benjamin Mann, Nick Ryder, Melanie Subbiah, Jared Kaplan,
+                                                                                 Prafulla Dhariwal, Arvind Neelakantan, Pranav Shyam, Girish Sastry, Amanda
+feature acceleration modules [8] to speed up the tree traversal in               Askell, Sandhini Agarwal, Ariel Herbert-Voss, Gretchen Krueger, Tom Henighan,
+ray tracing, and some recent work improves the ray tracing perfor-               Rewon Child, Aditya Ramesh, Daniel M. Ziegler, Jeffrey Wu, Clemens Winter,
+                                                                                 Christopher Hesse, Mark Chen, Eric Sigler, Mateusz Litwin, Scott Gray, Benjamin
+mance on GPUs with architectural support [29, 31]. In contrast, our              Chess, Jack Clark, Christopher Berner, Sam McCandlish, Alec Radford, Ilya
+work focuses on the modern neural rendering pipeline, and NeuRex                 Sutskever, and Dario Amodei. 2020. Language Models Are Few-Shot Learners. In
+is the first work that accelerates neural rendering models with para-            Conference on Neural Information Processing Systems (NeurIPS).
+                                                                             [8] John Burgess. 2020. RTX on—The NVIDIA Turing GPU. IEEE Micro (2020).
+metric encodings. Hardware accelerators for DNNs have also been              [9] Karthik Chandrasekar, Christian Weis, Yonghui Li, Sven Goossens, Matthias
+extensively explored [3, 12, 13, 15, 16, 21, 24, 25, 28, 36, 40, 41, 47].        Jung, Omar Naji, Benny Akesson, Norbert Wehn, and Kees Goossens. 2012.
+DNN models can be pruned with minimal accuracy loss, provid-                     DRAMPower: Open-source DRAM power & Energy Estimation Tool. http://www.
+                                                                                 drampower.info
+ing architects with an opportunity to skip unnecessary computa-             [10] Anpei Chen, Zexiang Xu, Andreas Geiger, Jingyi Yu, and Hao Su. 2022. TensoRF:
+tion [20, 22]. Popular neural network primitives (e.g., ReLU) also in-           Tensorial Radiance Fields. In European Conference on Computer Vision (ECCV).
+                                                                            [11] Yinbo Chen, Sifei Liu, and Xiaolong Wang. 2021. Learning Continuous Image
+troduce zeros during computation. Sparse accelerators exploit these              Representation with Local Implicit Image Function. In IEEE/CVF Conference on
+opportunities to efficiently perform DNN inference [2, 19, 21, 45, 59].          Computer Vision and Pattern Recognition (CVPR).
+NeuRex can take advantage of some of the optimizations in these             [12] Yunji Chen, Tao Luo, Shaoli Liu, Shijin Zhang, Liqiang He, Jia Wang, Ling Li,
+                                                                                 Tianshi Chen, Zhiwei Xu, Ninghui Sun, and Olivier Temam. 2014. DaDianNao:
+works, but the existing DNN accelerators are unlikely to be used                 A Machine-Learning Supercomputer. In 47th Annual IEEE/ACM International
+for modern neural renderings out of the box.                                     Symposium on Microarchitecture (MICRO).
+                                                                            [13] Yu-Hsin Chen, Joel Emer, and Vivienne Sze. 2016. Eyeriss: A Spatial Architecture
+                                                                                 for Energy-Efficient Dataflow for Convolutional Neural Networks. In ACM/IEEE
+8    CONCLUSION                                                                  43rd Annual International Symposium on Computer Architecture (ISCA).
+Neural rendering gains significant traction as a promising method           [14] Jacob Devlin, Ming-Wei Chang, Kenton Lee, and Kristina Toutanova. 2019. BERT:
+                                                                                 Pre-training of Deep Bidirectional Transformers for Language Understanding. In
+for synthesizing complex scenes from novel viewpoints. This work                 Conference of the North American Chapter of the Association for Computational
+takes a careful look at the modern neural rendering model, which                 Linguistics: Human Language Technologies (NAACL-HLT).
+                                                                            [15] Yu Feng, Boyuan Tian, Tiancheng Xu, Paul Whatmough, and Yuhao Zhu.
+significantly enhances rendering performance and quality over oth-               2020. Mesorasi: Architecture Support for Point Cloud Analytics via Delayed-
+ers by employing multi-resolution hash encodings. We observe that                Aggregation. In 53rd Annual IEEE/ACM International Symposium on Microarchi-
+the hash encoding operation now becomes the performance bot-                     tecture (MICRO).
+                                                                            [16] Jeremy Fowers, Kalin Ovtcharov, Michael Papamichael, Todd Massengill, Ming
+tleneck in conventional hardware and needs to be more hardware-                  Liu, Daniel Lo, Shlomi Alkalay, Michael Haselman, Logan Adams, Mahdi Ghandi,
+friendly to achieve its full potential. Based on our analysis, we                Stephen Heil, Prerak Patel, Adam Sapek, Gabriel Weisz, Lisa Woods, Sitaram
+present NeuRex, a specialized accelerator that features a novel hash             Lanka, Steven K. Reinhardt, Adrian M. Caulfield, Eric S. Chung, and Doug Burger.
+                                                                                 2018. A Configurable Cloud-Scale DNN Processor for Real-Time AI. In ACM/IEEE
+encoding engine for modern neural renderings. NeuRex exploits our                45th Annual International Symposium on Computer Architecture (ISCA).
+proposed restricted hashing to mitigate irregular access to off-chip        [17] Sara Fridovich-Keil, Alex Yu, Matthew Tancik, Qinhong Chen, Benjamin Recht,
+                                                                                 and Angjoo Kanazawa. 2022. Plenoxels: Radiance Fields Without Neural Net-
+memory and enable concurrent execution of key operations in the                  works. In IEEE/CVF Conference on Computer Vision and Pattern Recognition
+neural rendering pipeline. With the algorithm-hardware co-design,                (CVPR).
+NeuRex greatly improves rendering performance over conventional             [18] Stephan J. Garbin, Marek Kowalski, Matthew Johnson, Jamie Shotton, and Julien
+                                                                                 P. C. Valentin. 2021. FastNeRF: High-Fidelity Neural Rendering at 200FPS. In
+hardware with substantially smaller area and power budgets.                      IEEE/CVF International Conference on Computer Vision (ICCV).
+                                                                            [19] Ashish Gondimalla, Noah Chesnut, Mithuna Thottethodi, and T. N. Vijaykumar.
+ACKNOWLEDGMENTS                                                                  2019. SparTen: A Sparse Tensor Accelerator for Convolutional Neural Networks.
+                                                                                 In 52nd Annual IEEE/ACM International Symposium on Microarchitecture (MIRCO).
+We thank the anonymous reviewers for their insightful comments.             [20] Tae Jun Ham, Yejin Lee, Seong Hoon Seo, Soosung Kim, Hyunji Choi, Sung Jun
+This work was supported by the New Faculty Startup Fund from                     Jung, and Jae W. Lee. 2021. ELSA: Hardware-Software Co-Design for Efficient,
+                                                                                 Lightweight Self-Attention Mechanism in Neural Networks. In ACM/IEEE 48th
+Seoul National University and the Ministry of Science and ICT                    Annual International Symposium on Computer Architecture (ISCA).
+under the ITRC support program (IITP-2023-RS-2022-00156295)                 [21] Song Han, Xingyu Liu, Huizi Mao, Jing Pu, Ardavan Pedram, Mark A. Horowitz,
+                                                                                 and William J. Dally. 2016. EIE: Efficient Inference Engine on Compressed Deep
+supervised by the IITP (Institute for Information & Communications               Neural Network. In ACM/IEEE 43rd Annual International Symposium on Computer
+Technology Planning & Evaluation). The Institute of Engineering                  Architecture (ISCA).
+Research at Seoul National University provided research facilities          [22] Song Han, Jeff Pool, John Tran, and William J. Dally. 2015. Learning Both
+                                                                                 Weights and Connections for Efficient Neural Networks. In Conference on Neural
+for this work. Jaewoong Sim is the corresponding author.
+NeuRex: A Case for Neural Rendering Acceleration                                                                                   ISCA ’23, June 17–21, 2023, Orlando, FL, USA
+
+
+     Information Processing Systems (NeurIPS).                                                  Recognition (CVPR).
+[23] Peter Hedman, Pratul P. Srinivasan, Ben Mildenhall, Jonathan T. Barron, and Paul      [40] Eriko Nurvitadhi, David Sheffield, Jaewoong Sim, Asit Mishra, Ganesh Venkatesh,
+     Debevec. 2021. Baking Neural Radiance Fields for Real-Time View Synthesis. In              and Debbie Marr. 2016. Accelerating Binarized Neural Networks: Comparison of
+     IEEE/CVF International Conference on Computer Vision (ICCV).                               FPGA, CPU, GPU, and ASIC. In International Conference on Field-Programmable
+[24] Norman P. Jouppi, Cliff Young, Nishant Patil, David Patterson, Gaurav Agrawal,             Technology (FPT).
+     Raminder Bajwa, Sarah Bates, Suresh Bhatia, Nan Boden, Al Borchers, Rick Boyle,       [41] Eriko Nurvitadhi, Ganesh Venkatesh, Jaewoong Sim, Debbie Marr, Randy Huang,
+     Pierre-luc Cantin, Clifford Chao, Chris Clark, Jeremy Coriell, Mike Daley, Matt            Jason Ong Gee Hock, Yeong Tat Liew, Krishnan Srivatsan, Duncan Moss, Suchit
+     Dau, Jeffrey Dean, Ben Gelb, Tara Vazir Ghaemmaghami, Rajendra Gottipati,                  Subhaschandra, and Guy Boudoukh. 2017. Can FPGAs Beat GPUs in Acceler-
+     William Gulland, Robert Hagmann, C. Richard Ho, Doug Hogberg, John Hu,                     ating Next-Generation Deep Neural Networks?. In ACM/SIGDA International
+     Robert Hundt, Dan Hurt, Julian Ibarz, Aaron Jaffey, Alek Jaworski, Alexander               Symposium on Field-Programmable Gate Arrays (FPGA).
+     Kaplan, Harshit Khaitan, Daniel Killebrew, Andy Koch, Naveen Kumar, Steve             [42] NVIDIA. 2018. NVIDIA Xavier System-on-Chip, HotChips 30.
+     Lacy, James Laudon, James Law, Diemthu Le, Chris Leary, Zhuyuan Liu, Kyle             [43] NVIDIA. 2020. GeForce RTX 3070 Family. Retrieved April 10, 2023 from https:
+     Lucke, Alan Lundin, Gordon MacKean, Adriana Maggiore, Maire Mahony, Kieran                 //www.nvidia.com/en-us/geforce/graphics-cards/30-series/rtx-3070-3070ti/
+     Miller, Rahul Nagarajan, Ravi Narayanaswami, Ray Ni, Kathy Nix, Thomas Norrie,        [44] Mike O’Connor, Niladrish Chatterjee, Donghyuk Lee, John Wilson, Aditya
+     Mark Omernick, Narayana Penukonda, Andy Phelps, Jonathan Ross, Matt Ross,                  Agrawal, Stephen W. Keckler, and William J. Dally. 2017. Fine-Grained
+     Amir Salek, Emad Samadiani, Chris Severn, Gregory Sizikov, Matthew Snelham,                DRAM: Energy-Efficient DRAM for Extreme Bandwidth Systems. In 50th Annual
+     Jed Souter, Dan Steinberg, Andy Swing, Mercedes Tan, Gregory Thorson, Bo                   IEEE/ACM International Symposium on Microarchitecture (MICRO).
+     Tian, Horia Toma, Erick Tuttle, Vijay Vasudevan, Richard Walter, Walter Wang,         [45] Angshuman Parashar, Minsoo Rhu, Anurag Mukkara, Antonio Puglielli, Rang-
+     Eric Wilcox, and Doe Hyun Yoon. 2017. In-datacenter performance analysis of a              harajan Venkatesan, Brucek Khailany, Joel Emer, Stephen W. Keckler, and
+     tensor processing unit. In ACM/IEEE 44th Annual International Symposium on                 William J. Dally. 2017. SCNN: An accelerator for compressed-sparse convo-
+     Computer Architecture (ISCA).                                                              lutional neural networks. In ACM/IEEE 44th Annual International Symposium on
+[25] Liu Ke, Udit Gupta, Benjamin Youngjae Cho, David Brooks, Vikas Chandra, Utku               Computer Architecture (ISCA).
+     Diril, Amin Firoozshahian, Kim Hazelwood, Bill Jia, Hsien-Hsin S. Lee, Meng           [46] Jeong Joon Park, Peter Florence, Julian Straub, Richard Newcombe, and Steven
+     Li, Bert Maher, Dheevatsa Mudigere, Maxim Naumov, Martin Schatz, Mikhail                   Lovegrove. 2019. DeepSDF: Learning Continuous Signed Distance Functions for
+     Smelyanskiy, Xiaodong Wang, Brandon Reagen, Carole-Jean Wu, Mark Hemp-                     Shape Representation. In IEEE/CVF Conference on Computer Vision and Pattern
+     stead, and Xuan Zhang. 2020. RecNMP: Accelerating Personalized Recommen-                   Recognition (CVPR).
+     dation with near-Memory Processing. In ACM/IEEE 47th Annual International             [47] Brandon Reagen, Paul Whatmough, Robert Adolf, Saketh Rama, Hyunkwang Lee,
+     Symposium on Computer Architecture (ISCA).                                                 Sae Kyu Lee, José Miguel Hernández-Lobato, Gu-Yeon Wei, and David Brooks.
+[26] Yoongu Kim, Weikun Yang, and Onur Mutlu. 2016. Ramulator: A Fast and                       2016. Minerva: Enabling Low-Power, Highly-Accurate Deep Neural Network
+     Extensible DRAM Simulator. IEEE Computer Architecture Letters (CAL) (2016).                Accelerators. In ACM/IEEE 43rd Annual International Symposium on Computer
+[27] Arno Knapitsch, Jaesik Park, Qian-Yi Zhou, and Vladlen Koltun. 2017. Tanks and             Architecture (ISCA).
+     Temples: Benchmarking Large-Scale Scene Reconstruction. ACM Transactions on           [48] C. Reiser, S. Peng, Y. Liao, and A. Geiger. 2021. KiloNeRF: Speeding up Neural Ra-
+     Graphics (SIGGRAPH) (2017).                                                                diance Fields with Thousands of Tiny MLPs. In IEEE/CVF International Conference
+[28] Youngeun Kwon, Yunjae Lee, and Minsoo Rhu. 2019. TensorDIMM: A Practical                   on Computer Vision (ICCV).
+     Near-Memory Processing Architecture for Embeddings and Tensor Operations              [49] Alexander Reshetov, Alexei Soupikov, and Jim Hurley. 2005. Multi-Level Ray
+     in Deep Learning. In 52nd Annual IEEE/ACM International Symposium on Mi-                   Tracing Algorithm. ACM Transactions on Graphics (SIGGRAPH) (2005).
+     croarchitecture (MICRO).                                                              [50] Nikola Samardzic, Axel Feldmann, Aleksandar Krastev, Srinivas Devadas, Ronald
+[29] Lufei Liu, Wesley Chang, Francois Demoullin, Yuan Hsi Chou, Mohammadreza                   Dreslinski, Christopher Peikert, and Daniel Sanchez. 2021. F1: A Fast and Pro-
+     Saed, David Pankratz, Tyler Nowicki, and Tor M. Aamodt. 2021. Intersection Pre-            grammable Accelerator for Fully Homomorphic Encryption. In 54th Annual
+     diction for Accelerated GPU Ray Tracing. In 54th Annual IEEE/ACM International             IEEE/ACM International Symposium on Microarchitecture (MICRO).
+     Symposium on Microarchitecture (MICRO).                                               [51] Vincent Sitzmann, Michael Zollhoefer, and Gordon Wetzstein. 2019. Scene Rep-
+[30] Lingjie Liu, Jiatao Gu, Kyaw Zaw Lin, Tat-Seng Chua, and Christian Theobalt.               resentation Networks: Continuous 3D-Structure-Aware Neural Scene Represen-
+     2020. Neural Sparse Voxel Fields. In Conference on Neural Information Processing           tations. In Conference on Neural Information Processing Systems (NeurIPS).
+     Systems (NeurIPS).                                                                    [52] Cheng Sun, Min Sun, and Hwann-Tzong Chen. 2022. Direct Voxel Grid Optimiza-
+[31] Yashuai Lü, Libo Huang, Li Shen, and Zhiying Wang. 2017. Unleashing the                    tion: Super-fast Convergence for Radiance Fields Reconstruction. In IEEE/CVF
+     Power of GPU for Physically-Based Rendering via Dynamic Ray Shuffling. In                  Conference on Computer Vision and Pattern Recognition (CVPR).
+     50th Annual IEEE/ACM International Symposium on Microarchitecture (MICRO).            [53] Synopsys. 2023. Design Compiler - Synopsys.             Retrieved April 10, 2023
+[32] Julien N. P. Martel, David B. Lindell, Connor Z. Lin, Eric R. Chan, Marco Monteiro,        from https://www.synopsys.com/implementation-and-signoff/rtl-synthesis-test/
+     and Gordon Wetzstein. 2021. ACORN: Adaptive Coordinate Networks for Neural                 dc-ultra.html
+     Scene Representation. ACM Transactions on Graphics (SIGGRAPH) (2021).                 [54] Towaki Takikawa, Joey Litalien, Kangxue Yin, Karsten Kreis, Charles Loop, Derek
+[33] Yiqun Mei, Yuchen Fan, and Yuqian Zhou. 2021. Image Super-Resolution With                  Nowrouzezahrai, Alec Jacobson, Morgan McGuire, and Sanja Fidler. 2021. Neural
+     Non-Local Sparse Attention. In IEEE/CVF Conference on Computer Vision and                  Geometric Level of Detail: Real-time Rendering with Implicit 3D Shapes. In
+     Pattern Recognition (CVPR).                                                                IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR).
+[34] Micron. 2016. Automotive LPDDR4/LPDDR4X SDRAM. Micron Technology, Inc,                [55] Ayush Tewari, Justus Thies, Ben Mildenhall, Pratul Srinivasan, Edgar Tretschk, Yi-
+     Boise, USA.                                                                                fan Wang, Christoph Lassner, Vincent Sitzmann, Ricardo Martin-Brualla, Stephen
+[35] Ben Mildenhall, Pratul P. Srinivasan, Matthew Tancik, Jonathan T. Barron, Ravi             Lombardi, Tomas Simon, Christian Theobalt, Matthias Niessner, Jonathan T.
+     Ramamoorthi, and Ren Ng. 2020. NeRF: Representing Scenes as Neural Radiance                Barron, Gordon Wetzstein, Michael Zollhoefer, and Vladislav Golyanik. 2021.
+     Fields for View Synthesis. In Proceedings of the European Conference on Computer           Advances in Neural Rendering. https://doi.org/10.48550/ARXIV.2111.05849
+     Vision (ECCV).                                                                        [56] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones,
+[36] Duncan J.M Moss, Srivatsan Krishnan, Eriko Nurvitadhi, Piotr Ratuszniak, Chris             Aidan N. Gomez, Łukasz Kaiser, and Illia Polosukhin. 2017. Attention is All
+     Johnson, Jaewoong Sim, Asit Mishra, Debbie Marr, Suchit Subhaschandra, and                 You Need. In Conference on Neural Information Processing Systems (NeurIPS).
+     Philip H.W. Leong. 2018. A Customizable Matrix Multiplication Framework               [57] Y. Yao, Z. Luo, S. Li, J. Zhang, Y. Ren, L. Zhou, T. Fang, and L. Quan. 2020.
+     for the Intel HARPv2 Xeon+FPGA Platform: A Deep Learning Case Study. In                    BlendedMVS: A Large-Scale Dataset for Generalized Multi-View Stereo Networks.
+     ACM/SIGDA International Symposium on Field-Programmable Gate Arrays (FPGA).                In IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR).
+[37] Thomas Müller, Alex Evans, Christoph Schied, and Alexander Keller. 2022. In-          [58] Alex Yu, Ruilong Li, Matthew Tancik, Hao Li, Ren Ng, and Angjoo Kanazawa.
+     stant Neural Graphics Primitives with a Multiresolution Hash Encoding. ACM                 2021. PlenOctrees for Real-time Rendering of Neural Radiance Fields. In IEEE/CVF
+     Transactions on Graphics (SIGGRAPH) (2022).                                                International Conference on Computer Vision (ICCV).
+[38] Thomas Neff, Pascal Stadlbauer, Mathias Parger, Andreas Kurz, Joerg H. Mueller,       [59] Shijin Zhang, Zidong Du, Lei Zhang, Huiying Lan, Shaoli Liu, Ling Li, Qi Guo,
+     Chakravarty R. Alla Chaitanya, Anton S. Kaplanyan, and Markus Steinberger.                 Tianshi Chen, and Yunji Chen. 2016. Cambricon-X: An accelerator for sparse
+     2021. DONeRF: Towards Real-Time Rendering of Compact Neural Radiance                       neural networks. In 49th Annual IEEE/ACM International Symposium on Microar-
+     Fields using Depth Oracle Networks. Computer Graphics Forum (EGSR) (2021).                 chitecture (MICRO).
+[39] Michael Niemeyer, Lars Mescheder, Michael Oechsle, and Andreas Geiger. 2020.          [60] Han Zhao, Weihao Cui, Quan Chen, Jieru Zhao, Jingwen Leng, and Minyi Guo.
+     Differentiable Volumetric Rendering: Learning Implicit 3D Representations with-            2021. Exploiting Intra-SM Parallelism in GPUs via Persistent and Elastic Blocks.
+     out 3D Supervision. In IEEE/CVF Conference on Computer Vision and Pattern                  In IEEE 39th International Conference on Computer Design (ICCD).
+

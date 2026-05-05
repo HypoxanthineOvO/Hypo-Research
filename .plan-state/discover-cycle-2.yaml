@@ -1,0 +1,28 @@
+mode: interactive
+workflow_kind: build
+rounds_completed: 5
+completed_at: "2026-05-05T01:21:42+08:00"
+user_end_signal: "好，开始吧"
+scope: full_next_stage
+priority:
+  - guide
+  - check
+  - read
+  - report_v2
+top_level_commands:
+  - guide
+  - check
+  - review
+  - read
+decisions:
+  - Guide and check should be deep implementation targets.
+  - Read should be a runnable prototype with PyMuPDF and optional adapter design.
+  - Review remains independent simulated academic quality review.
+  - Presubmit has unclear semantics and should be compatibility-only or document-secondary.
+  - Full check includes automatic checks plus Agent-facing review checklist/prompt.
+  - Third-party dependencies are allowed when useful.
+validation:
+  - unit tests
+  - CLI integration tests
+  - fixture LaTeX reports
+  - sample PDF artifacts

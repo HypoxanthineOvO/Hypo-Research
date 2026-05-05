@@ -1,0 +1,17 @@
+- time: "2026-05-05T13:28:04+08:00"
+  type: cycle_accept
+  cycle: C2
+  status: accepted
+  summary: "Accepted Cycle C2 after guide/check/read implementation and regression validation."
+- time: "2026-05-05T13:35:00+08:00"
+  type: patch_fix
+  patch: P001
+  status: closed
+  commit: null
+  summary: "Added paper target resolution for files, folders, and zip/tar archives."
+  tests: "uv run pytest -> 492 passed, 3 skipped, 2 warnings"
+- time: "2026-05-05T15:31:52+08:00"
+  type: release
+  status: prepared
+  version: "0.7.0"
+  summary: "Prepared v0.7.0 docs, sync artifacts, version files, and changelog."
