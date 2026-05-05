@@ -28,11 +28,13 @@ Cycle C2 已验收完成。下一步可使用 `/hw:patch` 处理轻量 follow-up
 | Patch | Status | Severity | Summary |
 |---|---|---|---|
 | P001 | closed | normal | Paper target folder/archive support |
+| P002 | closed | critical | plugin.json manifest author field type fix |
 
 ## 时间线
 
 | Time | Type | Event | Summary |
 |---|---|---|---|
 | 15:31 | Release | v0.7.0 prepared | Docs整理、skill mirror sync、version/changelog 更新 |
+| 23:20 | Patch | P002 closed | 修复 plugin.json author 字段类型 (2dabd9a) |
 | 13:35 | Patch | P001 closed | 支持论文 target 文件夹和 zip/tar 压缩包 |
 | 13:28 | Cycle | C2 accepted | Guide/check/read implementation accepted |
