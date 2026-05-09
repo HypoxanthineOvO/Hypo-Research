@@ -89,6 +89,18 @@ def test_actionable_feedback_requirement_is_in_all_prompts() -> None:
         assert ACTIONABLE_FEEDBACK_REQUIREMENT.strip() in prompt
 
 
+def test_dingqihan_focuses_on_experimental_rigor_not_code_release() -> None:
+    reviewer = REVIEWERS["dingqihan"]
+    prompt = get_reviewer_prompt(reviewer, Severity.STANDARD, paper(), venue="dac")
+
+    assert reviewer.role == "Experimental Rigor (实验设计与描述)"
+    assert "不会仅因为没有开源代码就给低分" in prompt
+    assert "实验设置是否讲清楚" in prompt
+    assert "仿真模型" in prompt
+    assert "代码开源吗" not in prompt
+    assert "训练用了几张卡" not in prompt
+
+
 def test_prompt_includes_venue_review_style() -> None:
     prompt = get_reviewer_prompt(REVIEWERS["lichaofan"], Severity.STANDARD, paper(), venue="dac")
 

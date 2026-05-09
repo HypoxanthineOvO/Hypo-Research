@@ -71,7 +71,7 @@ uv run hypo-research review <paper_path> \
 - 📐 陈泉宇：Related，关注可读性、术语解释、figure 是否自解释。
 - 🤔 蒋烨：Outsider，关注故事线、motivation、contribution 和整体自洽性。
 - ✍️ 李宇轩：Writing，关注表达、格式、术语一致性和引用规范；不打数值分。
-- 🔧 丁麒涵：Reproducibility，关注代码、数据、超参数、计算资源和随机种子。
+- 🔧 丁麒涵：Experimental Rigor，关注实验设计、baseline/ablation、公平性、指标定义、workload、仿真/测量设置和 claim 支撑力度；硬件论文不因未公开 RTL/完整代码本身扣分。
 
 ### 第三点五步：AC Meta-Review（如果贺云翔在 panel 中）
 

@@ -28,3 +28,11 @@
   status: prepared
   version: "0.7.0"
   summary: "Prepared v0.7.0 docs, sync artifacts, version files, and changelog."
+- time: "2026-05-09T18:44:26+08:00"
+  type: patch_fix
+  patch: P003
+  status: closed
+  commit: self
+  summary: "Recalibrated Ding Qihan from reproducibility/code-release reviewer to experimental-rigor reviewer for hardware papers."
+  tests: "uv run pytest tests/test_review_reviewers.py tests/test_review_roadmap.py tests/test_review_cli.py -> 21 passed"
+  delegation: "not used; patch was a small local persona/text/test update and subagents were not requested"

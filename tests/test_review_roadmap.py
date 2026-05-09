@@ -64,7 +64,7 @@ def test_revision_roadmap_prompt_contains_concerns_table_format() -> None:
     prompt = get_revision_roadmap_prompt(paper(), reviews(), meta_review(), Severity.HARSH)
 
     assert "问题交叉矩阵" in prompt
-    assert "Novelty / Experiments / Writing / Reproducibility" in prompt
+    assert "Novelty / Experiments / Writing / Experimental Rigor" in prompt
 
 
 def test_revision_item_priority_allows_only_three_values() -> None:
