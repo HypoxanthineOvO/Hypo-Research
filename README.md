@@ -3,7 +3,7 @@
 > 学术科研全流程辅助工具包：从文献调研、创意生成、论文写作检查、模拟审稿到 rebuttal，一站式串联科研工作流。
 > 支持作为 Codex / Claude Skill 调用（`$hypo-xxx`），也可作为独立 CLI 使用。
 
-[![Tests](https://img.shields.io/badge/tests-468%20total-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-496%20total-brightgreen)]()
 [![Skills](https://img.shields.io/badge/skills-21-blue)]()
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)]()
@@ -398,6 +398,8 @@ uv run hypo-research review --list-reviewers
 uv run hypo-research review --list-venues
 ```
 
+其中丁麒涵现在定位为 **Experimental Rigor（实验设计与描述）** 审稿人：重点检查实验设计、baseline/ablation 公平性、指标定义、workload、仿真/测量设置和 claim 支撑力度。对硬件、体系结构和 EDA 论文，他不会因为没有公开 RTL、版图、EDA 脚本或完整仿真环境本身扣低分，而是看论文是否把实验假设、资源统计和结果边界讲清楚。
+
 核心角色配置位于：
 
 ```text
@@ -475,7 +477,7 @@ Hypo-Research/
 ├── skills/                # Skill 指令文件（21 个）
 ├── .agents/skills/        # Codex Skill bundle 镜像
 ├── plugins/               # Claude Plugin 镜像
-├── tests/                 # 测试（468 total）
+├── tests/                 # 测试（496 total）
 ├── data/                  # 本地输出数据（可 gitignore）
 └── install-skills.sh      # Skill 一键安装脚本
 ```

@@ -36,3 +36,10 @@
   summary: "Recalibrated Ding Qihan from reproducibility/code-release reviewer to experimental-rigor reviewer for hardware papers."
   tests: "uv run pytest tests/test_review_reviewers.py tests/test_review_roadmap.py tests/test_review_cli.py -> 21 passed"
   delegation: "not used; patch was a small local persona/text/test update and subagents were not requested"
+- time: "2026-05-09T19:05:51+08:00"
+  type: release
+  status: released
+  version: "0.7.2"
+  commit: self
+  summary: "Released v0.7.2: recalibrated Ding Qihan reviewer persona, refreshed Chinese docs, and synced OpenCode/Hypo-Workflow derived artifacts."
+  tests: "uv run pytest -> 492 passed, 4 skipped, 2 warnings"

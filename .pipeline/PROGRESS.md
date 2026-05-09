@@ -35,6 +35,7 @@ Cycle C2 已验收完成。下一步可使用 `/hw:patch` 处理轻量 follow-up
 
 | Time | Type | Event | Summary |
 |---|---|---|---|
+| 19:05 | Release | v0.7.2 | 丁麒涵实验设计审稿人校准、中文文档与 OpenCode sync |
 | 18:44 | Patch | P003 closed | 丁麒涵改为实验设计与描述审稿人 |
 | 23:25 | Release | v0.7.1 | 修复 plugin manifest author 字段类型 (4b1bcf8) |
 | 15:31 | Release | v0.7.0 prepared | Docs整理、skill mirror sync、version/changelog 更新 |
